@@ -8,8 +8,9 @@ from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
 from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
                     wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
-from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
-                     water_at, ROADS, WATER, FORESTS)
+from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
+                     terrain_at, water_at, ROAD_TILES, LAKE_TILES,
+                     FOREST_TILES, RIVER_TILES, neighbors)
 
 
 class GameServerTests(unittest.TestCase):
@@ -112,16 +113,34 @@ class GameServerTests(unittest.TestCase):
         self.assertLess(p["speed"], before)
 
     def test_terrain_effects_and_water_collision(self):
-        self.assertEqual(terrain_at(100, 150), "road")
-        self.assertEqual(terrain_at(450, 700), "forest")
-        self.assertEqual(terrain_at(1050, 960), "water")
+        self.assertEqual(terrain_at(*BASE_SITES[0]), "road")
+        forest_tile = next(tile for tile in sorted(FOREST_TILES)
+                           if tile not in ROAD_TILES)
+        forest_x, forest_y = tile_to_world(*forest_tile)
+        self.assertEqual(terrain_at(forest_x, forest_y), "forest")
+        lake_tile = sorted(LAKE_TILES)[len(LAKE_TILES) // 2]
+        lake_x, lake_y = tile_to_world(*lake_tile)
+        self.assertEqual(terrain_at(lake_x, lake_y), "water")
+        self.assertTrue(water_at(lake_x, lake_y, 18))
+        self.assertTrue(self.server.blocked(lake_x, lake_y))
         self.assertGreater(TERRAIN_SPEED["road"], TERRAIN_SPEED["forest"])
-        self.assertTrue(water_at(950, 960, 18))
+        self.assertGreater(TERRAIN_SPEED["forest"], TERRAIN_SPEED["river"])
+        self.assertGreater(TERRAIN_SPEED["river"], TERRAIN_SPEED["water"])
+
+    def test_river_is_fordable_but_severely_slows_moving_tank(self):
+        river_tile = next(tile for tile in sorted(RIVER_TILES)
+                          if tile not in LAKE_TILES)
+        x, y = tile_to_world(*river_tile)
+        self.assertEqual(terrain_at(x, y), "river")
+        self.assertFalse(water_at(x, y, 18))
         p = self.server.players[1]
-        p.update(x=928.0, y=960.0, angle=0.0, speed=195.0)
+        p.update(x=float(x), y=float(y), angle=0.0, speed=125.0)
         self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}', self.address1)
         self.server.step(1 / 30)
-        self.assertLessEqual(p["x"], 932.0)
+        self.assertLess(p["speed"], 125.0)
+        for _ in range(35):
+            self.server.step(1 / 30)
+        self.assertLessEqual(abs(p["speed"]), 125.0 * TERRAIN_SPEED["river"] + 5.0)
 
     def test_base_capture_and_repair(self):
         p = self.server.players[1]
@@ -185,16 +204,39 @@ class GameServerTests(unittest.TestCase):
 class ConstructionGridTests(unittest.TestCase):
     def test_wall_segments_are_exact_grid_tiles(self):
         self.assertGreater(len(WALL_SECTIONS), 0)
-        for rect in WALL_SECTIONS:
-            x, y, w, h = rect
+        for x, y, w, h in WALL_SECTIONS:
             self.assertEqual((w, h), (GRID_SIZE, GRID_SIZE))
             self.assertEqual(x % GRID_SIZE, 0)
             self.assertEqual(y % GRID_SIZE, 0)
 
-    def test_terrain_bounds_align_to_grid(self):
-        for rect in WATER + ROADS + FORESTS + tuple(WALLS):
-            with self.subTest(rect=rect):
-                self.assertTrue(all(int(v) % GRID_SIZE == 0 for v in rect))
+    def test_all_natural_terrain_is_grid_based(self):
+        for kind, tiles in (("river", RIVER_TILES), ("lake", LAKE_TILES),
+                            ("forest", FOREST_TILES), ("road", ROAD_TILES)):
+            self.assertTrue(tiles, kind)
+            for tx, ty in tiles:
+                self.assertGreaterEqual(tx, 0)
+                self.assertGreaterEqual(ty, 0)
+                self.assertLess(tx, 52)
+                self.assertLess(ty, 38)
+
+    def test_flags_are_connected_by_routed_road_network(self):
+        passable = ROAD_TILES | RIVER_TILES
+        visited = {BASE_TILES[0]}
+        queue = [BASE_TILES[0]]
+        for tile in queue:
+            for neighbor in neighbors(tile):
+                if neighbor in passable and neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        for base in BASE_TILES:
+            self.assertIn(base, visited)
+
+    def test_lakes_and_forests_have_irregular_edges(self):
+        # Their tile-row widths change as the organic contour is traversed.
+        for tiles in (LAKE_TILES, FOREST_TILES):
+            widths = [len([1 for tx, ty in tiles if ty == row])
+                      for row in {y for _, y in tiles}]
+            self.assertGreater(len(set(widths)), 2)
 
     def test_base_and_pillbox_centres_share_grid(self):
         for x, y in BASE_SITES + PILLBOX_SITES:

@@ -24,7 +24,7 @@ from construction import BUILD_RANGE, BUILD_COSTS, START_MATERIAL, MAX_MATERIAL
 
 class GameServerTests(unittest.TestCase):
     def setUp(self):
-        self.server = GameServer(0)
+        self.server = GameServer(0, dev_token="test-host-only-secret")
         self.address1 = ("127.0.0.1", 51001)
         self.address2 = ("127.0.0.1", 51002)
         self.server.handle(b'{"type":"join","name":"Alpha"}', self.address1)
@@ -391,7 +391,7 @@ class GameServerTests(unittest.TestCase):
     def test_god_mode_toggles_and_blocks_damage(self):
         p = self.server.players[1]
         self.assertFalse(p["god_mode"])
-        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.server.handle(b'{"type":"god_mode","dev_token":"test-host-only-secret"}', self.address1)
         self.assertTrue(p["god_mode"])
         self.assertEqual(p["hp"], 100)
         self.server.bullets.append({"x": p["x"] - 30, "y": p["y"],
@@ -400,7 +400,7 @@ class GameServerTests(unittest.TestCase):
         self.server.step(1 / 30)
         self.assertEqual(p["hp"], 100)
         self.assertLessEqual(p["respawn"], 0.0)
-        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.server.handle(b'{"type":"god_mode","dev_token":"test-host-only-secret"}', self.address1)
         self.assertFalse(p["god_mode"])
         self.server.bullets.append({"x": p["x"] - 30, "y": p["y"],
                                     "vx": 680.0, "vy": 0.0,
@@ -408,8 +408,30 @@ class GameServerTests(unittest.TestCase):
         self.server.step(1 / 30)
         self.assertLess(p["hp"], 100)
 
+    def test_god_mode_rejects_plain_or_invalid_lan_requests(self):
+        player = self.server.players[2]
+        for payload in (
+            b'{"type":"god_mode"}',
+            b'{"type":"god_mode","dev_token":"guest"}',
+            b'{"type":"god_mode","dev_token":null}',
+        ):
+            self.server.handle(payload, self.address2)
+            self.assertFalse(player["god_mode"])
+        self.assertFalse(self.server.players[1]["god_mode"])
+
+    def test_god_mode_disabled_when_server_has_no_host_secret(self):
+        regular = GameServer(0)
+        try:
+            address = ("127.0.0.1", 51089)
+            regular.handle(b'{"type":"join","name":"Client"}', address)
+            regular.handle(b'{"type":"god_mode","dev_token":"test-host-only-secret"}',
+                           address)
+            self.assertFalse(regular.players[1]["god_mode"])
+        finally:
+            regular.sock.close()
+
     def test_god_mode_is_per_player(self):
-        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.server.handle(b'{"type":"god_mode","dev_token":"test-host-only-secret"}', self.address1)
         self.assertTrue(self.server.players[1]["god_mode"])
         self.assertFalse(self.server.players[2]["god_mode"])
 

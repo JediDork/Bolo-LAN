@@ -2,6 +2,13 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.19 — Heavier driving and a visible reload cycle
+
+- **Slower tanks:** forward maximum reduced from 125 to **95 world units/s**; reverse reduced from 75 to **55 world units/s**. Roads still offer their 20% speed bonus, while forests and rivers retain the same relative slowdown. Acceleration is unchanged for this tuning pass.
+- **Longer cannon reload:** cooldown between shots is now **1.25 seconds** (formerly 0.60 seconds), meaning held-fire cannot fire again until the full cycle finishes. The existing mechanical reload sound plays near the end of the cycle, before the gun is ready.
+- **Reload progress ring:** the ring immediately surrounding the **local tank** is now a server-synchronized clockwise cooldown meter. After shooting, the dark ring progressively fills amber. A **solid green ring** indicates the gun is ready to fire again. This is visible without looking away from the action.
+- God Mode and construction remain unchanged. All LAN players must update their clients and host because the server now sends the authoritative reload progress in the player snapshot.
+
 ## Version 0.18 — Safe flag spawning and audible cannon reloads
 
 - **Start on a free flag:** on joining (and after respawning), the server chooses an unclaimed flag that isn't occupied by another tank. This gives new players an objective and a fair starting point.

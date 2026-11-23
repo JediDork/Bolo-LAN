@@ -2,6 +2,12 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.3 — One-click LAN hosting
+
+Every game client can host. Run `python launcher.py` (or the packaged `BoloLAN.exe`): it checks for an existing LAN server, joins if found, and otherwise starts a server in the same process before joining locally. The first player acts as host, so closing that game ends the hosted session. Players on other computers can join while the host remains running. If several machines start at exactly the same time, a rare split-lobby race is possible; try restarting the later instances if they do not see each other. A dedicated `server.py` / `BoloLAN-Server.exe` is still available.
+
+On Windows you can use `Start-BoloLAN.ps1` to pull or clone the latest GitHub sources, install the Python dependencies in an isolated `.venv`, and start the game. Run: `powershell -ExecutionPolicy Bypass -File .\\Start-BoloLAN.ps1`. Optional: `-HostIP 192.168.1.20 -PlayerName Tank1`. Git and Python 3.11+ are needed for the script, but **not** for the packaged executable.
+
 ## Version 0.2 — LAN combat polish
 
 - Smooth interpolation of networked tank positions and independently aimed turrets.
@@ -32,17 +38,13 @@ Python 3.11+ recommended.
 python -m pip install -r requirements.txt
 ```
 
-On the host PC:
+On **every** PC, run the same launcher. It auto-joins the first existing game or hosts a new one if none is found:
 
 ```powershell
-python server.py
+python launcher.py
 ```
 
-On each player's PC:
-
-```powershell
-python client.py
-```
+For a dedicated always-on host instead, run `python server.py`, and start players with `python launcher.py`.
 
 The client broadcasts to discover an active LAN host; alternatively use `python client.py --host 192.168.1.20` (replace with the host PC's LAN IP).
 

@@ -180,6 +180,9 @@ class GameServer:
                 if player["respawn"] <= 0:
                     self.spawn(player)
                 continue
+            for resource in ("ammo", "material"):
+                timer = resource + "_sound_timer"
+                player[timer] = max(0.0, player.get(timer, 0.0) - dt)
             command = player["input"]
             # Realistic tracked-tank drive: acceleration, braking, coasting,
             # and turn inertia are simulated ONLY on the authoritative host.
@@ -519,6 +522,20 @@ class GameServer:
                    shortest_dx(x, box["x"]) ** 2 + (box["y"] - y) ** 2 < (TANK_RADIUS + 22) ** 2
                    for box in self.pillboxes)
 
+    def refill_sound(self, player, resource, before, after, maximum):
+        """Report local resupply without playing a sound on every tick."""
+        if after <= before + 1e-7:
+            return
+        if after >= maximum - 1e-7 and before < maximum - 1e-7:
+            self.event(resource + "_full", player["x"], player["y"],
+                       recipient=player["id"])
+        else:
+            timer = resource + "_sound_timer"
+            if player.get(timer, 0.0) <= 0.0:
+                self.event(resource + "_added", player["x"], player["y"],
+                           recipient=player["id"])
+                player[timer] = 0.70
+
     def update_bases(self, dt):
         for base in self.bases:
             nearby = [p for p in self.players.values()
@@ -534,18 +551,28 @@ class GameServer:
             if base["owner"] == pid:
                 # One life point each ~0.13 seconds and one shell each 0.5 s.
                 player["hp"] = min(100, player["hp"] + 7.5 * dt)
-                player["ammo"] = min(24, player["ammo"] + 2.0 * dt)
-                player["material"] = min(MAX_MATERIAL, player["material"] + MATERIAL_REFILL * dt)
+                old_ammo, old_material = player["ammo"], player["material"]
+                player["ammo"] = min(24, old_ammo + 2.0 * dt)
+                player["material"] = min(MAX_MATERIAL,
+                                         old_material + MATERIAL_REFILL * dt)
+                self.refill_sound(player, "ammo", old_ammo, player["ammo"], 24)
+                self.refill_sound(player, "material", old_material,
+                                  player["material"], MAX_MATERIAL)
                 continue
             if base["capturing"] != pid:
                 base["capturing"] = pid
                 base["progress"] = 0.0
             base["progress"] += dt
             if base["progress"] >= CAPTURE_TIME:
+                previous_owner = base["owner"]
                 base["owner"] = pid
                 base["capturing"] = 0
                 base["progress"] = 0.0
                 self.event("capture", base["x"], base["y"], owner=pid)
+                self.event("flag_taken", base["x"], base["y"], recipient=pid)
+                if previous_owner and previous_owner != pid:
+                    self.event("flag_lost", base["x"], base["y"],
+                               recipient=previous_owner)
 
     def update_pillboxes(self, dt):
         for box in self.pillboxes:

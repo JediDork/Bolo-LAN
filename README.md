@@ -2,6 +2,15 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.15 — Continuous roads and buildable tracks
+
+- **Road rendering fixed:** straight runs and intersections are now painted as continuous earth tracks, not overlapping circles. Outer shoulders and roadbed are drawn in separate passes, preventing the dark semicircle seams seen in the screenshot. Only true dead ends have rounded caps.
+- **Construct roads:** enter build mode with **B**, choose **6 (ROAD)**, then left-click an empty 50-unit tile. Each road costs **1 construction material** and can connect to existing roads or other new road tiles.
+- Player-built roads grant the same **20% tank-speed bonus** as existing roads, appear on every client's battlefield and minimap, and can be removed by their owner using **5 (REMOVE)**.
+- Placement stays server-authoritative: no roads on rivers (use bridges), lakes, forests, flags, existing roads, walls, or pillboxes. Builders must be within the normal 175-unit placement range.
+- Player-built road tracks are drawn dynamically using the same visual treatment as the terrain roads. This doesn't affect the fixed player viewing area or any existing construction tools.
+- Added automated road-building and rendering regression tests.
+
 ## Version 0.14 — Larger strategic world, real lakes and defensive retaliation
 
 - **Four times the playable terrain:** enlarged the world from **2600 × 1900** to **5200 × 3800** world units, without changing the fair **1200 × 760** viewport. Four map sectors now contain **24 capturable flags**, **16 starting pillboxes**, varied forests, lakes, roads and existing structures. Spawn locations are distributed across the larger area.
@@ -43,6 +52,7 @@ Run the existing PowerShell updater or download the successful Windows artifact 
 | **3** | Select pillbox | 8 |
 | **4** | Select repair tool | 1 |
 | **5** | Select remove tool | 0 |
+| **6** | Select road | 1 |
 | **Left-click** | Apply selected tool to grid tile | depends |
 | **Space** | Fire while in build mode | ammo |
 

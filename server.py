@@ -6,10 +6,10 @@ import socket
 import time
 
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
-                    WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
+                    WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, wall_at)
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
                      water_at, initial_wall_hp, RIVER_TILES, BRIDGE_TILES, ROAD_TILES,
-                     LAKE_TILES)
+                     LAKE_TILES, FOREST_TILES, tile_at)
 from shared import GRID_SIZE, tile_to_world
 from construction import (BUILD_RANGE, BUILD_COOLDOWN, BUILD_COSTS,
                           START_MATERIAL, MAX_MATERIAL, MATERIAL_REFILL,
@@ -26,7 +26,11 @@ TURN_ACCELERATION = 7.5
 TURN_DRAG = 10.0
 CAPTURE_TIME = 2.5
 BASE_RADIUS = 54
-PILLBOX_RANGE = 355  # Fits just inside half the 760-unit fixed camera height
+PILLBOX_RANGE = 355  # Fire only once inside the visible vertical camera half-height
+PILLBOX_DETECTION_RANGE = 465  # Wider warning/rotation radius
+PILLBOX_TURN_SPEED = 1.7  # Radians per second, barrel traverses visibly
+PILLBOX_AIM_TOLERANCE = 0.13
+FOREST_PENETRATION_TILES = 2
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
@@ -50,7 +54,8 @@ class GameServer:
                        "owner": 0, "capturing": 0, "progress": 0.0}
                       for i, (x, y) in enumerate(BASE_SITES)]
         self.pillboxes = [{"id": i, "x": float(x), "y": float(y),
-                           "hp": 100, "cooldown": 0.7, "owner": 0}
+                           "hp": 100, "cooldown": 0.7, "owner": 0,
+                           "angle": 0.0, "tracking": False}
                           for i, (x, y) in enumerate(PILLBOX_SITES)]
         self.wall_hp = initial_wall_hp()
         self.built_walls = {}  # (tile_x, tile_y) -> {hp, owner}
@@ -195,7 +200,7 @@ class GameServer:
             player["speed"] += clamp(target_speed - speed, -change, change)
             # Turning is slightly less responsive at maximum speed.
             turn_limit = TURN_SPEED * (0.76 if abs(player["speed"]) > 105 else 1.0)
-            target_turn = turning * turn_limit
+            target_turn = turning * turn_limit * (-1 if throttle < 0 else 1)
             step_turn = (TURN_ACCELERATION if turning else TURN_DRAG) * dt
             player["angular_speed"] += clamp(target_turn - player["angular_speed"],
                                               -step_turn, step_turn)
@@ -240,24 +245,28 @@ class GameServer:
             if (bullet["life"] <= 0 or not 0 <= bullet["x"] <= WORLD_W
                     or not 0 <= bullet["y"] <= WORLD_H):
                 continue
-            section = segment_hits_wall(old_x, old_y, bullet["x"], bullet["y"],
-                                        self.wall_hp)
-            if section is not None:
-                self.wall_hp[section] -= 1
-                self.event("impact", bullet["x"], bullet["y"])
-                if self.wall_hp[section] == 0:
-                    wx, wy, ww, wh = WALL_SECTIONS[section]
-                    self.event("wall_break", wx + ww / 2, wy + wh / 2)
-                continue
-            built_hit = self.built_wall_hit(old_x, old_y, bullet["x"], bullet["y"])
-            if built_hit is not None:
-                wall = self.built_walls[built_hit]
-                wall["hp"] -= 1
-                wx, wy = tile_to_world(*built_hit)
-                self.event("impact", wx, wy)
-                if wall["hp"] <= 0:
-                    del self.built_walls[built_hit]
-                    self.event("wall_break", wx, wy)
+            # Swept obstruction checks run in *travel order*, so a nearer
+            # wall always blocks before deeper vegetation can absorb the shell.
+            obstruction = self.shell_obstruction(bullet, old_x, old_y,
+                                                  bullet["x"], bullet["y"])
+            if obstruction is not None:
+                kind, value, hit_x, hit_y = obstruction
+                if kind == "wall":
+                    self.wall_hp[value] -= 1
+                    self.event("impact", hit_x, hit_y)
+                    if self.wall_hp[value] == 0:
+                        wx, wy, ww, wh = WALL_SECTIONS[value]
+                        self.event("wall_break", wx + ww / 2, wy + wh / 2)
+                elif kind == "built":
+                    wall = self.built_walls[value]
+                    wall["hp"] -= 1
+                    self.event("impact", hit_x, hit_y)
+                    if wall["hp"] <= 0:
+                        del self.built_walls[value]
+                        wx, wy = tile_to_world(*value)
+                        self.event("wall_break", wx, wy)
+                else:
+                    self.event("impact", hit_x, hit_y)
                 continue
             hit = False
             if bullet["owner"] > 0:
@@ -303,6 +312,59 @@ class GameServer:
             if not hit:
                 remaining.append(bullet)
         self.bullets = remaining
+
+    @staticmethod
+    def sample_segment(x0, y0, x1, y1, spacing=4.0):
+        # Dense, deterministic sweep avoids tunnelling through narrow tiles.
+        length = math.hypot(x1 - x0, y1 - y0)
+        count = max(1, math.ceil(length / spacing))
+        for step in range(1, count + 1):
+            fraction = step / count
+            yield (x0 + (x1 - x0) * fraction,
+                   y0 + (y1 - y0) * fraction)
+
+    def wall_obstruction_at(self, x, y, radius=3):
+        index = wall_at(x, y, radius, self.wall_hp)
+        if index is not None:
+            return "wall", index
+        tx, ty = tile_at(x, y)
+        if (tx, ty) in self.built_walls:
+            return "built", (tx, ty)
+        return None
+
+    def shell_obstruction(self, bullet, x0, y0, x1, y1):
+        # A shell can penetrate up to two *distinct* forest cells during its
+        # entire lifetime. Adjacent samples in the same tile count once.
+        previous = bullet.get("forest_last_tile")
+        depth = bullet.get("forest_depth", 0)
+        for x, y in self.sample_segment(x0, y0, x1, y1):
+            obstruction = self.wall_obstruction_at(x, y)
+            if obstruction:
+                return obstruction[0], obstruction[1], x, y
+            tile = tile_at(x, y)
+            if tile in FOREST_TILES and tile != previous:
+                depth += 1
+                if depth > FOREST_PENETRATION_TILES:
+                    return "forest", tile, x, y
+            previous = tile
+        bullet["forest_last_tile"] = previous
+        bullet["forest_depth"] = depth
+        return None
+
+    def can_see(self, x0, y0, x1, y1):
+        """Solid masonry and more than two forest cells break turret LOS."""
+        previous = None
+        depth = 0
+        for x, y in self.sample_segment(x0, y0, x1, y1):
+            if self.wall_obstruction_at(x, y):
+                return False
+            tile = tile_at(x, y)
+            if tile in FOREST_TILES and tile != previous:
+                depth += 1
+                if depth > FOREST_PENETRATION_TILES:
+                    return False
+            previous = tile
+        return True
 
     def built_wall_hit(self, x0, y0, x1, y1):
         # Same swept collision granularity as pre-existing walls.
@@ -355,7 +417,8 @@ class GameServer:
             else:
                 self.pillboxes.append({"id": len(self.pillboxes), "x": float(x),
                                        "y": float(y), "hp": 100, "cooldown": 0.8,
-                                       "owner": player["id"]})
+                                       "owner": player["id"], "angle": 0.0,
+                                       "tracking": False})
         elif part == "bridge":
             if tile not in RIVER_TILES or tile in BRIDGE_TILES or tile in self.built_bridges:
                 return respond(False, "BRIDGES REQUIRE OPEN RIVER")
@@ -436,16 +499,34 @@ class GameServer:
             if box["hp"] <= 0:
                 continue
             box["cooldown"] = max(0.0, box["cooldown"] - dt)
-            if box["cooldown"] > 0:
+            visible = []
+            for player in self.players.values():
+                if player["respawn"] > 0 or player["id"] == box["owner"]:
+                    continue
+                distance = math.hypot(player["x"] - box["x"],
+                                      player["y"] - box["y"])
+                if (distance < PILLBOX_DETECTION_RANGE and
+                        self.can_see(box["x"], box["y"],
+                                     player["x"], player["y"])):
+                    visible.append((distance, player))
+            box["tracking"] = bool(visible)
+            if not visible:
                 continue
-            candidates = [p for p in self.players.values()
-                          if p["respawn"] <= 0 and p["id"] != box["owner"]
-                          and math.hypot(p["x"] - box["x"], p["y"] - box["y"]) < PILLBOX_RANGE]
-            if not candidates:
+            distance, target = min(visible, key=lambda match: match[0])
+            desired = math.atan2(target["y"] - box["y"],
+                                 target["x"] - box["x"])
+            current = box.get("angle", 0.0)
+            difference = (desired - current + math.pi) % (2 * math.pi) - math.pi
+            box["angle"] = (current + clamp(difference,
+                                             -PILLBOX_TURN_SPEED * dt,
+                                             PILLBOX_TURN_SPEED * dt)) % (2 * math.pi)
+            # Rotate visibly throughout the outer detection area, but never
+            # fire until the target is nearer AND the barrel is aligned.
+            remaining = (desired - box["angle"] + math.pi) % (2 * math.pi) - math.pi
+            if (distance >= PILLBOX_RANGE or box["cooldown"] > 0
+                    or abs(remaining) > PILLBOX_AIM_TOLERANCE):
                 continue
-            target = min(candidates, key=lambda p: (p["x"] - box["x"]) ** 2 +
-                                                 (p["y"] - box["y"]) ** 2)
-            angle = math.atan2(target["y"] - box["y"], target["x"] - box["x"])
+            angle = box["angle"]
             self.bullets.append({"x": box["x"] + math.cos(angle) * 24,
                                  "y": box["y"] + math.sin(angle) * 24,
                                  "vx": math.cos(angle) * SHELL_SPEED,

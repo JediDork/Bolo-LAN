@@ -59,6 +59,25 @@ def tile_to_world(tile_x, tile_y):
 WALL_SECTIONS = make_wall_sections()
 
 
+def wrap_x(x):
+    """Longitude wraps around the equator; latitude never wraps."""
+    return x % WORLD_W
+
+
+def shortest_dx(source_x, target_x):
+    """Signed shortest east/west displacement on the cylindrical world."""
+    return (target_x - source_x + WORLD_W / 2) % WORLD_W - WORLD_W / 2
+
+
+def wrapped_distance(x0, y0, x1, y1):
+    return math.hypot(shortest_dx(x0, x1), y1 - y0)
+
+
+def nearest_x(world_x, reference_x):
+    """Unwrapped image of longitude closest to a camera or point."""
+    return reference_x + shortest_dx(reference_x, world_x)
+
+
 def clamp(x, low, high):
     return max(low, min(high, x))
 

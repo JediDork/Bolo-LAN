@@ -4,7 +4,7 @@ All construction is anchored to a 50x50 map tile. Server validates range,
 resources, terrain, occupancy and cooldown; clients only send intent.
 """
 import math
-from shared import GRID_SIZE, WORLD_H, WORLD_W, tile_to_world
+from shared import GRID_SIZE, WORLD_H, WORLD_W, tile_to_world, wrapped_distance
 from terrain import (BASE_TILES, PILLBOX_TILES, FOREST_TILES,
                      LAKE_TILES, RIVER_TILES, BRIDGE_TILES)
 
@@ -36,7 +36,7 @@ def valid_tile(tx, ty):
 
 def in_build_range(player, tx, ty):
     x, y = tile_to_world(tx, ty)
-    return math.hypot(player["x"] - x, player["y"] - y) <= BUILD_RANGE
+    return wrapped_distance(player["x"], player["y"], x, y) <= BUILD_RANGE
 
 
 def blocked_build_terrain(tile, kind):

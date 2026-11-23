@@ -15,7 +15,8 @@ from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
                      terrain_at, water_at, ROAD_TILES, LAKE_TILES,
                      FOREST_TILES, RIVER_TILES, BRIDGE_TILES,
                      initial_wall_hp, neighbors, RIVER_PATHS, LAKE_PATCHES,
-                     GRID_W, GRID_H)
+                     GRID_W, GRID_H, MAX_FLAGS_PER_MAP, MAP_FLAG_COUNT,
+                     MAP_SEED, select_flag_tiles)
 from construction import BUILD_RANGE, BUILD_COSTS, START_MATERIAL, MAX_MATERIAL
 
 
@@ -164,6 +165,63 @@ class GameServerTests(unittest.TestCase):
             self.server.step(1 / 30)
         self.assertGreater(p["hp"], 50)
         self.assertGreater(p["ammo"], 12)
+
+    def test_flags_seeded_selection_is_bounded_and_repeatable(self):
+        self.assertEqual(len(BASE_TILES), 6)
+        self.assertEqual(len(self.server.bases), 6)
+        self.assertEqual(select_flag_tiles(MAP_SEED, 6), BASE_TILES)
+        self.assertEqual(len(set(BASE_TILES)), 6)
+        self.assertEqual(len(select_flag_tiles(MAP_SEED + 1, 3)), 3)
+        with self.assertRaises(ValueError):
+            select_flag_tiles(MAP_SEED, 7)
+        with self.assertRaises(ValueError):
+            select_flag_tiles(MAP_SEED, 0)
+
+    def test_refill_sounds_are_local_rate_limited_and_full_once(self):
+        p = self.server.players[1]
+        bx, by = BASE_SITES[0]
+        p.update(x=float(bx), y=float(by), speed=0,
+                 ammo=20.0, material=27.0)
+        self.server.players[2].update(x=4000.0, y=3400.0)
+        self.server.bases[0]["owner"] = p["id"]
+        self.server.events.clear()
+        self.server.update_bases(0.1)
+        kinds = [event["type"] for event in self.server.events]
+        self.assertEqual(kinds.count("ammo_added"), 1)
+        self.assertEqual(kinds.count("material_added"), 1)
+        self.assertTrue(all(event["recipient"] == p["id"]
+                            for event in self.server.events))
+        self.server.update_bases(0.1)
+        self.assertEqual(len(self.server.events), 2)
+        p["ammo"] = 23.9
+        p["material"] = MAX_MATERIAL - 0.05
+        self.server.update_bases(0.1)
+        kinds = [event["type"] for event in self.server.events]
+        self.assertEqual(kinds.count("ammo_full"), 1)
+        self.assertEqual(kinds.count("material_full"), 1)
+        self.server.update_bases(2.0)
+        kinds = [event["type"] for event in self.server.events]
+        self.assertEqual(kinds.count("ammo_full"), 1)
+        self.assertEqual(kinds.count("material_full"), 1)
+
+    def test_flag_capture_notifies_both_new_and_previous_owners(self):
+        p = self.server.players[1]
+        previous = self.server.players[2]
+        bx, by = BASE_SITES[0]
+        p.update(x=float(bx), y=float(by), speed=0.0)
+        previous.update(x=4000.0, y=3400.0)
+        self.server.bases[0]["owner"] = previous["id"]
+        self.server.events.clear()
+        self.server.update_bases(2.6)
+        taken = [e for e in self.server.events if e["type"] == "flag_taken"]
+        lost = [e for e in self.server.events if e["type"] == "flag_lost"]
+        self.assertEqual(len(taken), 1)
+        self.assertEqual(len(lost), 1)
+        self.assertEqual(taken[0]["recipient"], p["id"])
+        self.assertEqual(lost[0]["recipient"], previous["id"])
+        self.server.update_bases(0.1)
+        self.assertEqual(len([e for e in self.server.events
+                              if e["type"] == "flag_taken"]), 1)
 
     def test_reduced_drive_speed_and_acceleration(self):
         self.assertEqual(MOVE_SPEED, 125.0)
@@ -581,7 +639,8 @@ class ConstructionGridTests(unittest.TestCase):
 
     def test_world_is_four_times_original_play_area(self):
         self.assertEqual((WORLD_W, WORLD_H), (5200, 3800))
-        self.assertGreaterEqual(len(BASE_TILES), 24)
+        self.assertEqual(len(BASE_TILES), MAP_FLAG_COUNT)
+        self.assertEqual(len(BASE_TILES), MAX_FLAGS_PER_MAP)
         self.assertGreaterEqual(len(PILLBOX_SITES), 16)
 
     def test_road_bridges_cross_river(self):

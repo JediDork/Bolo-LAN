@@ -2,6 +2,14 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.21 — Host-only developer God Mode
+
+- **Regular players cannot activate invulnerability.** The old single-key **G** shortcut is gone from the on-screen controls and the client ignores it.
+- Only the local auto-hosting client can use **Ctrl + Shift + G** for testing. Starting a game through `Start-BoloLAN.ps1` or `launcher.py` will securely generate a one-time developer token *if this computer starts the server*. If you join an existing LAN game instead, you receive no developer access.
+- The **server validates a fresh unpredictable host token** on every God Mode request. A guest sending the old UDP `god_mode` command, guessing the keyboard shortcut, or modifying their client cannot enable it. Manually started dedicated servers disable God Mode entirely by default.
+- The local host's God Mode remains visible only when enabled (gold ring and status indicator), so testing remains obvious. It is not advertised to general players.
+- **Restart the LAN host as well as updating clients.** Older servers do not enforce the developer authorization and must not be used with the new competitive rules.
+
 ## Version 0.20 — Respawn at your own flags
 
 - **Already own a flag?** After being destroyed, your tank respawns **only at one of your claimed flags**, never at an unclaimed objective. If several are yours, the server chooses among them.
@@ -21,7 +29,7 @@ A modern, LAN-first, top-down tank combat prototype inspired by the strategy and
 
 - **Start on a free flag:** on joining (and after respawning), the server chooses an unclaimed flag that isn't occupied by another tank. This gives new players an objective and a fair starting point.
 - **All flags taken:** when no suitable unclaimed flag remains, the server finds a random road/grass tile with clearance from other tanks and live pillboxes, aiming for at least **550 world units** away from danger and 450 units from other players. The placement respects horizontal planet wrapping. As a fallback, it chooses the safest feasible candidate.
-- **Entry protection:** new/respawned tanks receive **three seconds of damage protection**, and automated pillboxes won't target them during that window. This protects against rare unsafe map combinations; god mode (G) remains separately available for testing.
+- **Entry protection:** new/respawned tanks receive **three seconds of damage protection**, and automated pillboxes won't target them during that window. This protects against rare unsafe map combinations; host-authorized developer God Mode remains separate from spawn protection.
 - **Cannon reload rhythm:** player cannon cooldown is now **0.60 seconds**, up from 0.42 seconds. After each shot, a short metallic breech/bolt sound plays to the shooter shortly before the next shot becomes available. This gives each cannon shot a more deliberate loading cadence.
 - **No ammunition:** a dry tank cannot fire; the reload sound is omitted when the last shell is spent. The reload sound respects **M** mute and does not produce visual particle effects.
 - Server-authoritative spawn protection and reload timers are synchronized in multiplayer. Tests cover neutral-flag starts, safe fallback, entry grace and timed reload sounds.
@@ -85,7 +93,7 @@ Run the existing PowerShell updater or download the successful Windows artifact 
 - Start with **18 materials**, can hold up to **30**, and replenish at **1.2 materials/second** when standing at a base you own. Materials do not reset when you respawn.
 - Built walls have **four hit points**, stop tanks and shells, display incremental damage and can be repaired or dismantled. Owned pillboxes automatically fire at enemy tanks. Newly built bridges appear for everyone and permit road-speed travel across the formerly slow river.
 - A highlighted tile follows the cursor in build mode. Build confirmations and errors appear in the HUD, alongside the materials count. Assets persist for the duration of the host's game session; saving maps is planned for a later milestone.
-- The initial prototype allows all participants to build. **G** remains an unrestricted developer/test god-mode toggle, not a competitive permission.
+- The initial prototype allows all participants to build. God Mode now requires host-only developer authorization; guests cannot turn it on.
 
 ### Build controls
 
@@ -258,7 +266,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 - **Mouse**: aim turret
 - **Left mouse** or **Space**: fire
 - **M**: mute/unmute sounds
-- **G**: toggle testing god mode (invulnerability)
+- **Ctrl + Shift + G (local host only)**: toggle authorized testing God Mode
 - **B**: toggle build mode; 1–5 select parts; click tile to build
 - **Esc**: quit
 

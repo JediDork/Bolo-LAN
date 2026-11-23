@@ -2,6 +2,16 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.17 — Six flags and resupply/ownership audio
+
+- The 5200 × 3800 planetary battlefield now has **six** strategic flags, down from 24.
+- Flag count is a map setting: `MAX_FLAGS_PER_MAP = 6`, `MAP_FLAG_COUNT = 6`, and `MAP_SEED = 7319` in `terrain.py`. `select_flag_tiles(seed, count)` deterministically spreads chosen flags across the map while respecting east/west wrapping. A future seeded-map generator can reuse this selector.
+- **Six new sounds** (procedural; no sound assets required): **material added** (light mechanical click), **materials full** (two-tone chime), **ammo added** (heavy loader clunk), **ammo full** (confirmation chime), **flag taken** (rising victory tone), and **flag lost** (falling warning tone).
+- Resupply audio plays only for the tank receiving materials/ammo and is rate-limited while loading, with a **single full-capacity cue** each time the resource reaches its maximum. Spending and replenishing resources allows the full cue to play again.
+- Taking a flag plays the victory sound for the new owner. Capturing an opponent's flag plays a separate loss notification for its previous owner. Neutral flags have no previous owner to notify.
+- All sounds respect **M (mute)** and operate on the authoritative server's state transitions.
+- Update every LAN client and the host together; the reduced flag arrangement changes road routing and initial map layout.
+
 ## Version 0.16 — Planet-style horizontal world wrapping
 
 - **East joins west:** the map now behaves like a cylinder/planet's longitude: drive right through the eastern map edge and emerge seamlessly at the western edge, and vice versa. There is no east/west boundary wall.

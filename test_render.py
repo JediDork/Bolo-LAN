@@ -9,7 +9,7 @@ import pygame
 from audio import SAMPLE_RATE, _synth
 from engine_audio import engine_loop, engine_mix, ENGINE_RATES
 from effects import Effects
-from renderer import RENDER_H, RENDER_W, draw_frame
+from renderer import RENDER_H, RENDER_W, draw_frame, draw_road_network
 from shared import WALL_MAX_HP, WALL_SECTIONS
 
 
@@ -57,6 +57,28 @@ class RenderTests(unittest.TestCase):
                    [WALL_MAX_HP] * len(WALL_SECTIONS),
                    [], [p], 1, Effects(), self.fonts,
                    "localhost", 50000, True, "", bases, pillboxes)
+
+    def test_roads_have_continuous_interiors_not_repeating_semicircles(self):
+        # Reproduces the straight-road pattern shown in the gameplay image.
+        tiles = {(0, 0), (1, 0), (2, 0), (3, 0)}
+        surface = pygame.Surface((450, 140))
+        surface.fill((45, 82, 61))
+        draw_road_network(surface, tiles, lambda x, y: (round(x * 2), round(y * 2)))
+        roadbed = (139, 122, 94)
+        # Every adjoining grid boundary should be continuous road fill;
+        # the old circle-per-tile renderer put dark semicircle seams here.
+        for x in (100, 200, 300):
+            self.assertEqual(tuple(surface.get_at((x, 50))[:3]), roadbed)
+        for x in (50, 150, 250, 350):
+            self.assertEqual(tuple(surface.get_at((x, 50))[:3]), roadbed)
+        self.assertNotEqual(tuple(surface.get_at((200, 10))[:3]), roadbed)
+
+    def test_built_roads_render_in_frame(self):
+        self.surface.fill((0, 0, 0))
+        draw_frame(self.surface, (0, 0), [0] * len(WALL_SECTIONS),
+                   [], [], None, Effects(), self.fonts,
+                   "localhost", 50000, True, "",
+                   built_roads=((6, 5), (7, 5), (8, 5)))
 
     def test_engine_layers_are_complete_loop_buffers(self):
         for hz in ENGINE_RATES:

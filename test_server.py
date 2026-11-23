@@ -5,10 +5,12 @@ import socket
 import unittest
 
 from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
+                    SPAWN_PLAYER_DISTANCE, SPAWN_SAFE_RADIUS,
                     ACCELERATION, PILLBOX_RANGE, PILLBOX_DETECTION_RANGE,
                     PILLBOX_TURN_SPEED, FOREST_PENETRATION_TILES)
 from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
                     WORLD_W, WORLD_H, wrap_x, shortest_dx, nearest_x,
+                    wrapped_distance,
                     wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
 from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
@@ -682,6 +684,72 @@ class ConstructionGridTests(unittest.TestCase):
         hp[0] = 0
         self.assertFalse(overlaps_wall(x + 5, y + GRID_SIZE / 2, 3, hp))
 
+
+class SpawnAndReloadTests(unittest.TestCase):
+    def setUp(self):
+        self.server = GameServer(0)
+        self.first_addr = ("127.0.0.1", 51101)
+        self.second_addr = ("127.0.0.1", 51102)
+        self.server.handle(b'{"type":"join","name":"First"}', self.first_addr)
+
+    def tearDown(self):
+        self.server.sock.close()
+
+    def test_new_players_start_on_available_neutral_flag(self):
+        player = self.server.players[1]
+        self.assertIn((player["x"], player["y"]),
+                      {(b["x"], b["y"]) for b in self.server.bases if b["owner"] == 0})
+        self.assertEqual(player["spawn_kind"], "flag")
+        self.assertGreater(player["spawn_grace"], 0)
+
+    def test_joining_player_does_not_spawn_on_existing_tank(self):
+        first = self.server.players[1]
+        self.server.handle(b'{"type":"join","name":"Second"}', self.second_addr)
+        second = self.server.players[2]
+        self.assertGreaterEqual(
+            wrapped_distance(first["x"], first["y"],
+                             second["x"], second["y"]), SPAWN_PLAYER_DISTANCE)
+
+    def test_all_flags_owned_uses_safe_random_ground(self):
+        for base in self.server.bases:
+            base["owner"] = 1
+        self.server.handle(b'{"type":"join","name":"Second"}', self.second_addr)
+        second = self.server.players[2]
+        self.assertEqual(second["spawn_kind"], "safe")
+        self.assertIn(terrain_at(second["x"], second["y"]), ("grass", "road"))
+        self.assertFalse(self.server.blocked(second["x"], second["y"]))
+        self.assertGreaterEqual(
+            self.server.spawn_clearance(second["x"], second["y"], second["id"]),
+            SPAWN_SAFE_RADIUS)
+        self.assertGreater(second["spawn_grace"], 0)
+
+    def test_reload_sound_happens_between_shots(self):
+        from server import RELOAD, RELOAD_SOUND_AT
+        self.assertGreater(RELOAD, 0.42)
+        self.assertGreater(RELOAD, RELOAD_SOUND_AT)
+        player = self.server.players[1]
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":true}',
+                           self.first_addr)
+        self.server.step(1 / 30)
+        self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 1)
+        self.assertFalse(any(e["type"] == "reload" for e in self.server.events))
+        self.server.step(0.42)
+        sounds = [e for e in self.server.events if e["type"] == "reload"]
+        self.assertEqual(len(sounds), 1)
+        self.assertEqual(sounds[0]["recipient"], player["id"])
+        self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 1)
+        self.server.step(0.20)
+        self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 2)
+
+    def test_spawn_grace_prevents_turret_targeting_and_damage(self):
+        player = self.server.players[1]
+        player.update(x=200.0, y=350.0, spawn_grace=2.0)
+        box = self.server.pillboxes[0]
+        box.update(x=200.0, y=530.0, cooldown=0.0)
+        for other in self.server.pillboxes[1:]:
+            other["hp"] = 0
+        self.server.update_pillboxes(0.1)
+        self.assertFalse(box["tracking"])
 
 class PlanetWrapTests(unittest.TestCase):
     def setUp(self):

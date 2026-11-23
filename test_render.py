@@ -7,7 +7,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 
 from audio import SAMPLE_RATE, _synth
-from engine_audio import engine_loop
+from engine_audio import engine_loop, engine_mix, ENGINE_RATES
 from effects import Effects
 from renderer import RENDER_H, RENDER_W, draw_frame
 from shared import WALL_MAX_HP, WALL_SECTIONS
@@ -59,7 +59,7 @@ class RenderTests(unittest.TestCase):
                    "localhost", 50000, True, "", bases, pillboxes)
 
     def test_engine_layers_are_complete_loop_buffers(self):
-        for hz in (21, 34, 49):
+        for hz in ENGINE_RATES:
             with self.subTest(hz=hz):
                 raw = engine_loop(hz)
                 self.assertEqual(len(raw), SAMPLE_RATE * 2)
@@ -68,6 +68,17 @@ class RenderTests(unittest.TestCase):
                 samples = array("h")
                 samples.frombytes(raw)
                 self.assertLess(abs(samples[0] - samples[-1]), 5000)
+
+    def test_engine_stays_low_and_transitions_without_a_raised_whine(self):
+        self.assertLessEqual(max(ENGINE_RATES), 25)
+        idle = engine_mix(0, 0)
+        cruising = engine_mix(65, 1)
+        fast = engine_mix(125, 1)
+        self.assertGreater(idle[0], 0)
+        self.assertGreater(cruising[1], idle[1])
+        self.assertGreater(fast[2], idle[2])
+        for volumes in (idle, cruising, fast):
+            self.assertTrue(all(0 <= volume <= 0.31 for volume in volumes))
 
     def test_audio_buffers_have_mono_16_bit_samples(self):
         for kind, length in (("fire", 0.19), ("impact", 0.14),

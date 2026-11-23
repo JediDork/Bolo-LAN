@@ -2,6 +2,18 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.9 — Natural terrain, connected roads and river fords
+
+- **Natural-shaped forests and lakes:** deterministic connected clusters of 50-unit terrain tiles now form irregular shorelines and forest boundaries rather than simple rectangles. Rounded overlapping visual edges keep the terrain organic while its gameplay footprint remains grid-based for future building.
+- **Road network:** routes are planned between all six flagged base locations using grid-aware pathfinding, avoiding solid walls and deep lakes and preferring existing road segments. Roads look like connected tracks instead of isolated rectangular bands.
+- **Fordable river:** a meandering, variable-width river crosses the battlefield. Tanks can enter it, but their target driving speed drops to **18%** of grass speed, with strong water drag on entry. Deep blue lakes remain completely impassable.
+- **Bridges are intentionally NOT buildable yet:** the river provides the tactical crossing problem that bridges will solve when we implement the builder. In this version you can still cross slowly without a bridge.
+- **Minimap:** shows forest, lake, river and roads to help plan routes and defensible choke points. Bases display raised capture flags.
+- **Fixed grid and fairness unchanged:** walls, base locations and pillboxes stay aligned to the 50-unit construction grid; tanks move continuously, and all players retain the same world view.
+- Engine audio remains as tuned in v0.8.
+
+Update both LAN host and clients before testing. Check whether wooded areas and shorelines feel natural, whether roads form useful routes between flags, and how crossing speed affects combat.
+
 ## Version 0.8 — Construction grid and diesel engine
 
 - **Unified 50 × 50 world-unit construction grid** for all static world content.

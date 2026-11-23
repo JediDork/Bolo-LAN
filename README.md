@@ -2,6 +2,30 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.6 — Tank handling and territory playtest
+
+**Tank handling**
+- Tanks now accelerate up to cruising speed instead of moving instantly at full throttle.
+- Releasing throttle produces coasting/rolling resistance; reversing while moving applies stronger braking.
+- Hull turning accelerates and settles gradually, with slightly reduced turn speed at high forward velocity.
+- Track cleats animate according to the server-reported tank speed.
+
+**Terrain**
+- Dirt roads increase target tank speed by 20%; forests reduce speed by 35%.
+- Lakes are impassable and tanks slide against their edges.
+- Roads, tree clusters and water are rendered at the established high-detail fullscreen resolution.
+- World visibility stays fixed at 1200 x 760 units for all clients.
+
+**Basic Bolo-inspired strategic systems**
+- Six neutral bases. Drive into a base and hold it uncontested for **2.5 seconds** to capture.
+- Owned bases restore armour and replenish ammunition (up to 24 shells).
+- Capture progress is visible as a circular indicator; enemy presence contests a base.
+- Four neutral automated pillboxes target nearby tanks, fire damaging shells and take **four hits** to destroy.
+- The minimap shows supply bases and active pillboxes.
+- These are early prototypes of territory mechanics, **not** yet the full classic builder/pillbox recovery or team victory rules.
+
+**Testing:** launch with `Start-BoloLAN.ps1` or download the latest successful GitHub Actions Windows ZIP. All clients/hosts should run the same build because network snapshots now carry speed, ammo, bases and pillboxes. Test acceleration/coasting, braking, road/forest traction, lake boundaries, 2.5-second captures, repair/reload, and pillbox damage. Report gameplay feel and any network desync.
+
 ## Version 0.5 — Sharper fullscreen visuals and sound
 
 - Battlefield visibility remains **exactly 1200 × 760 world units** on every machine, irrespective of screen resolution.
@@ -80,7 +104,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 
 ### Architecture
 
-`shared.py`: constants and deterministic destructible wall sections. `display.py`: fixed 1200x760 logical viewport mapping. `server.py`: fixed timestep authoritative simulation and discovery. `client.py`: rendering and input. All combat outcomes are computed by the server. The client sends only movement/aim/fire intentions; server validates rate and handles hits.
+`shared.py`: constants and deterministic destructible wall sections. `terrain.py`: shared terrain and strategic structure locations. `display.py`: fixed 1200x760 logical viewport mapping. `server.py`: fixed timestep authoritative simulation and discovery. `client.py`: rendering and input. All combat outcomes are computed by the server. The client sends only movement/aim/fire intentions; server validates rate and handles hits.
 
 Networking currently uses compact JSON snapshots over UDP for simplicity. Later milestones will add interpolation/prediction, more robust protocols, server browser, teams, and gameplay systems.
 

@@ -14,6 +14,7 @@ from shared import PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W
 from effects import Effects, draw_details, draw_minimap
 from display import viewport, to_logical
 from renderer import draw_frame, RENDER_W, RENDER_H
+from terrain import initial_wall_hp
 from audio import SoundBank, SAMPLE_RATE
 from engine_audio import EngineAudio
 
@@ -191,7 +192,7 @@ def main(argv=None):
     clock = pygame.time.Clock()
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
-             "walls": [WALL_MAX_HP] * len(WALL_SECTIONS),
+             "walls": initial_wall_hp(),
              "bases": [], "pillboxes": []}
     effects = Effects()
     visual_players = {}

@@ -2,6 +2,15 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.5 — Sharper fullscreen visuals and sound
+
+- Battlefield visibility remains **exactly 1200 × 760 world units** on every machine, irrespective of screen resolution.
+- The renderer now draws at **2400 × 1520 internal pixels** (2× detail per axis), with filtered fullscreen down/upscaling and aspect-ratio letterboxing. This improves fine tank, wall and terrain detail without exposing more map.
+- Procedurally synthesized cannon shots, wall impacts, armour hits, tank explosions and masonry collapse sounds. No external sound files or internet dependency.
+- Sound is distance-attenuated relative to the player; press **M** to toggle mute.
+- When sound hardware is unavailable, gameplay continues silently.
+- Press ESC to quit fullscreen.
+
 ## Version 0.4 — Combat and fair fullscreen
 
 - **True fullscreen, fixed gameplay viewport:** every machine sees exactly 1200x760 logical pixels; higher resolutions scale the same picture rather than revealing more terrain. Aspect-ratio differences are black-letterboxed. Mouse aiming compensates for scaling and letterboxing.
@@ -66,6 +75,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 - **A/D**: rotate hull
 - **Mouse**: aim turret
 - **Left mouse** or **Space**: fire
+- **M**: mute/unmute sounds
 - **Esc**: quit
 
 ### Architecture

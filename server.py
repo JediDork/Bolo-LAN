@@ -175,16 +175,16 @@ class GameServer:
             dy = math.sin(player["angle"]) * player["speed"] * dt
             nx = clamp(player["x"] + dx, TANK_RADIUS, WORLD_W - TANK_RADIUS)
             ny = clamp(player["y"] + dy, TANK_RADIUS, WORLD_H - TANK_RADIUS)
-            if not overlaps_wall(nx, player["y"], TANK_RADIUS, self.wall_hp) and not water_at(nx, player["y"], TANK_RADIUS):
+            if not self.blocked(nx, player["y"]):
                 player["x"] = nx
             else:
                 player["speed"] = 0.0
-            if not overlaps_wall(player["x"], ny, TANK_RADIUS, self.wall_hp) and not water_at(player["x"], ny, TANK_RADIUS):
+            if not self.blocked(player["x"], ny):
                 player["y"] = ny
             else:
                 player["speed"] = 0.0
             player["reload"] = max(0.0, player["reload"] - dt)
-            if command.get("fire") and player["reload"] <= 0 and player["ammo"] > 0:
+            if command.get("fire") and player["reload"] <= 0 and player["ammo"] >= 1:
                 angle = player["turret"]
                 self.bullets.append({"x": player["x"] + math.cos(angle) * 29,
                                      "y": player["y"] + math.sin(angle) * 29,
@@ -258,6 +258,13 @@ class GameServer:
             if not hit:
                 remaining.append(bullet)
         self.bullets = remaining
+
+    def blocked(self, x, y):
+        if overlaps_wall(x, y, TANK_RADIUS, self.wall_hp) or water_at(x, y, TANK_RADIUS):
+            return True
+        return any(box["hp"] > 0 and
+                   (box["x"] - x) ** 2 + (box["y"] - y) ** 2 < (TANK_RADIUS + 22) ** 2
+                   for box in self.pillboxes)
 
     def update_bases(self, dt):
         for base in self.bases:

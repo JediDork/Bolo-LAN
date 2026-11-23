@@ -11,14 +11,47 @@ from shared import GRID_SIZE, WALL_SECTIONS, WORLD_H, WORLD_W, tile_to_world, wr
 GRID_W = WORLD_W // GRID_SIZE
 GRID_H = WORLD_H // GRID_SIZE
 
-# Six bases per quadrant: 24 flags across four strategic sectors.
+# Seeded-map-ready flag configuration. Future map generation can supply
+# a different seed/count; the current layout deliberately has just six flags.
+MAX_FLAGS_PER_MAP = 6
+MAP_FLAG_COUNT = 6
+MAP_SEED = 7319
 _LOCAL_BASE_TILES = ((3, 6), (48, 29), (46, 5),
                      (4, 31), (19, 8), (32, 30))
 _LOCAL_PILLBOX_TILES = ((15, 21), (33, 19), (27, 14), (21, 25))
 SECTOR_X, SECTOR_Y = GRID_W // 2, GRID_H // 2
-BASE_TILES = tuple((x + ox, y + oy)
-                   for ox in (0, SECTOR_X) for oy in (0, SECTOR_Y)
-                   for x, y in _LOCAL_BASE_TILES)
+FLAG_CANDIDATES = tuple((x + ox, y + oy)
+                        for ox in (0, SECTOR_X) for oy in (0, SECTOR_Y)
+                        for x, y in _LOCAL_BASE_TILES)
+
+
+def select_flag_tiles(seed=MAP_SEED, count=MAP_FLAG_COUNT):
+    """Choose well-spaced flags deterministically for this map's seed.
+
+    Distances account for the east/west wrap, so flagged areas stay reasonably
+    distributed across the entire planet, including its joined longitude.
+    """
+    import random
+    if not isinstance(count, int) or not 1 <= count <= MAX_FLAGS_PER_MAP:
+        raise ValueError("Flag count must be between 1 and MAX_FLAGS_PER_MAP")
+    candidates = list(FLAG_CANDIDATES)
+    rng = random.Random(seed)
+    selected = [candidates.pop(rng.randrange(len(candidates)))]
+    while len(selected) < count:
+        def separation(tile):
+            return min((min(abs(tile[0] - other[0]),
+                            GRID_W - abs(tile[0] - other[0])) ** 2
+                        + (tile[1] - other[1]) ** 2)
+                       for other in selected)
+        best = max(separation(tile) for tile in candidates)
+        options = [tile for tile in candidates if separation(tile) == best]
+        chosen = rng.choice(options)
+        candidates.remove(chosen)
+        selected.append(chosen)
+    return tuple(selected)
+
+
+BASE_TILES = select_flag_tiles()
 PILLBOX_TILES = tuple((x + ox, y + oy)
                       for ox in (0, SECTOR_X) for oy in (0, SECTOR_Y)
                       for x, y in _LOCAL_PILLBOX_TILES)

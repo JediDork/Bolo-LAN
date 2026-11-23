@@ -8,7 +8,13 @@ import time
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
                     WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
-                     water_at, initial_wall_hp)
+                     water_at, initial_wall_hp, RIVER_TILES, BRIDGE_TILES, ROAD_TILES,
+                     LAKE_TILES)
+from shared import GRID_SIZE, tile_to_world
+from construction import (BUILD_RANGE, BUILD_COOLDOWN, BUILD_COSTS,
+                          START_MATERIAL, MAX_MATERIAL, MATERIAL_REFILL,
+                          valid_tile, in_build_range, blocked_build_terrain,
+                          near_flag, nearby_forest)
 
 MOVE_SPEED = 125.0
 REVERSE_SPEED = 75.0
@@ -47,6 +53,8 @@ class GameServer:
                            "hp": 100, "cooldown": 0.7, "owner": 0}
                           for i, (x, y) in enumerate(PILLBOX_SITES)]
         self.wall_hp = initial_wall_hp()
+        self.built_walls = {}  # (tile_x, tile_y) -> {hp, owner}
+        self.built_bridges = set()
         self.next_id = 1
         self.tick = 0
         self.events = []
@@ -101,7 +109,8 @@ class GameServer:
                 player = {"id": player_id, "name": str(message.get("name", "Tank"))[:16],
                           "color": COLORS[(player_id - 1) % len(COLORS)],
                           "input": {}, "last": time.monotonic(), "score": 0,
-                          "god_mode": False}
+                          "god_mode": False, "material": START_MATERIAL,
+                          "build_timer": 0.0}
                 self.spawn(player)
                 self.players[player_id] = player
                 self.addresses[address] = player_id
@@ -126,6 +135,10 @@ class GameServer:
                 player["respawn"] = 0.0
             self.transmit(address, {"type": "god_mode",
                                     "enabled": player["god_mode"]})
+        elif kind == "build":
+            kind_name = message.get("part")
+            tx, ty = message.get("tx"), message.get("ty")
+            self.build(player, kind_name, tx, ty, address)
         elif kind == "input":
             # Only input intent is accepted. Never trust client positions/hit reports.
             def axis(key):
@@ -162,6 +175,8 @@ class GameServer:
             throttle = command.get("move", 0)
             turning = command.get("turn", 0)
             ground = terrain_at(player["x"], player["y"])
+            if (int(player["x"] // GRID_SIZE), int(player["y"] // GRID_SIZE)) in self.built_bridges:
+                ground = "bridge"
             multiplier = TERRAIN_SPEED[ground]
             target_speed = (MOVE_SPEED if throttle > 0 else REVERSE_SPEED) * multiplier * throttle
             speed = player["speed"]
@@ -200,6 +215,7 @@ class GameServer:
                 player["y"] = ny
             else:
                 player["speed"] = 0.0
+            player["build_timer"] = max(0.0, player["build_timer"] - dt)
             player["reload"] = max(0.0, player["reload"] - dt)
             if command.get("fire") and player["reload"] <= 0 and player["ammo"] >= 1:
                 angle = player["turret"]
@@ -231,6 +247,16 @@ class GameServer:
                 if self.wall_hp[section] == 0:
                     wx, wy, ww, wh = WALL_SECTIONS[section]
                     self.event("wall_break", wx + ww / 2, wy + wh / 2)
+                continue
+            built_hit = self.built_wall_hit(old_x, old_y, bullet["x"], bullet["y"])
+            if built_hit is not None:
+                wall = self.built_walls[built_hit]
+                wall["hp"] -= 1
+                wx, wy = tile_to_world(*built_hit)
+                self.event("impact", wx, wy)
+                if wall["hp"] <= 0:
+                    del self.built_walls[built_hit]
+                    self.event("wall_break", wx, wy)
                 continue
             hit = False
             if bullet["owner"] > 0:
@@ -277,8 +303,96 @@ class GameServer:
                 remaining.append(bullet)
         self.bullets = remaining
 
+    def built_wall_hit(self, x0, y0, x1, y1):
+        # Same swept collision granularity as pre-existing walls.
+        distance = math.hypot(x1 - x0, y1 - y0)
+        steps = max(1, math.ceil(distance / 5))
+        for step in range(1, steps + 1):
+            fraction = step / steps
+            x, y = x0 + (x1 - x0) * fraction, y0 + (y1 - y0) * fraction
+            for tile in self.built_walls:
+                left, top = tile[0] * GRID_SIZE, tile[1] * GRID_SIZE
+                px = clamp(x, left, left + GRID_SIZE)
+                py = clamp(y, top, top + GRID_SIZE)
+                if (x - px) ** 2 + (y - py) ** 2 < 9:
+                    return tile
+        return None
+
+    def build(self, player, part, tx, ty, address=None):
+        def respond(ok, reason):
+            if address is not None:
+                self.transmit(address, {"type": "build_result", "ok": ok,
+                                        "message": reason})
+            return ok
+        if part not in BUILD_COSTS or not valid_tile(tx, ty):
+            return respond(False, "INVALID BUILD REQUEST")
+        if player["respawn"] > 0 or player["build_timer"] > 0:
+            return respond(False, "BUILDER NOT READY")
+        if not in_build_range(player, tx, ty):
+            return respond(False, "MOVE CLOSER TO BUILD")
+        if player["material"] + 1e-6 < BUILD_COSTS[part]:
+            return respond(False, "NOT ENOUGH MATERIAL")
+        tile = (tx, ty)
+        x, y = tile_to_world(tx, ty)
+        wall_indices = [i for i, (wx, wy, _, _) in enumerate(WALL_SECTIONS)
+                        if wx == tx * GRID_SIZE and wy == ty * GRID_SIZE]
+        original_wall = next((i for i in wall_indices if self.wall_hp[i] > 0), None)
+        built_wall = self.built_walls.get(tile)
+        box = next((b for b in self.pillboxes if b["hp"] > 0
+                    and (b["x"] - x) ** 2 + (b["y"] - y) ** 2 < 25 ** 2), None)
+        player_occupies = any(p["respawn"] <= 0
+                             and abs(p["x"] - x) < 40 and abs(p["y"] - y) < 40
+                             for p in self.players.values())
+        if part in ("wall", "pillbox"):
+            if (blocked_build_terrain(tile, part) or nearby_forest(tile)
+                    or near_flag(tile) or original_wall is not None or built_wall
+                    or box or player_occupies or tile in self.built_bridges
+                    or tile in BRIDGE_TILES):
+                return respond(False, "TILE OCCUPIED OR UNSUITABLE")
+            if part == "wall":
+                self.built_walls[tile] = {"hp": WALL_MAX_HP, "owner": player["id"]}
+            else:
+                self.pillboxes.append({"id": len(self.pillboxes), "x": float(x),
+                                       "y": float(y), "hp": 100, "cooldown": 0.8,
+                                       "owner": player["id"]})
+        elif part == "bridge":
+            if tile not in RIVER_TILES or tile in BRIDGE_TILES or tile in self.built_bridges:
+                return respond(False, "BRIDGES REQUIRE OPEN RIVER")
+            # Bridges occupy a river tile and cannot be placed under a tank.
+            if player_occupies or original_wall is not None or built_wall or box:
+                return respond(False, "CROSSING BLOCKED")
+            self.built_bridges.add(tile)
+        elif part == "repair":
+            if original_wall is not None and self.wall_hp[original_wall] < WALL_MAX_HP:
+                self.wall_hp[original_wall] = min(WALL_MAX_HP, self.wall_hp[original_wall] + 1)
+            elif built_wall is not None and built_wall["hp"] < WALL_MAX_HP:
+                built_wall["hp"] += 1
+            elif box is not None and box["hp"] < 100:
+                box["hp"] = min(100, box["hp"] + 25)
+            else:
+                return respond(False, "NOTHING DAMAGED HERE")
+        elif part == "remove":
+            if built_wall is not None:
+                del self.built_walls[tile]
+            elif tile in self.built_bridges:
+                self.built_bridges.remove(tile)
+            elif box is not None and box["owner"] == player["id"]:
+                box["hp"] = 0
+            else:
+                return respond(False, "NO OWNED BUILDING HERE")
+        player["material"] -= BUILD_COSTS[part]
+        player["build_timer"] = BUILD_COOLDOWN
+        self.event("build", x, y, part=part, owner=player["id"])
+        return respond(True, part.upper() + " COMPLETE")
+
     def blocked(self, x, y):
         if overlaps_wall(x, y, TANK_RADIUS, self.wall_hp) or water_at(x, y, TANK_RADIUS):
+            return True
+        for (tx, ty), wall in self.built_walls.items():
+            left, top = tx * GRID_SIZE, ty * GRID_SIZE
+            px, py = clamp(x, left, left + GRID_SIZE), clamp(y, top, top + GRID_SIZE)
+            if (x - px) ** 2 + (y - py) ** 2 < TANK_RADIUS ** 2:
+                return True
             return True
         return any(box["hp"] > 0 and
                    (box["x"] - x) ** 2 + (box["y"] - y) ** 2 < (TANK_RADIUS + 22) ** 2
@@ -300,6 +414,7 @@ class GameServer:
                 # One life point each ~0.13 seconds and one shell each 0.5 s.
                 player["hp"] = min(100, player["hp"] + 7.5 * dt)
                 player["ammo"] = min(24, player["ammo"] + 2.0 * dt)
+                player["material"] = min(MAX_MATERIAL, player["material"] + MATERIAL_REFILL * dt)
                 continue
             if base["capturing"] != pid:
                 base["capturing"] = pid
@@ -340,13 +455,17 @@ class GameServer:
                     "t": round(p["turret"], 3), "hp": p["hp"], "score": p["score"],
                     "dead": p["respawn"] > 0, "color": p["color"],
                     "speed": round(p["speed"], 1), "ammo": int(p["ammo"]),
-                    "god_mode": p["god_mode"]}
+                    "god_mode": p["god_mode"],
+                    "material": round(p["material"], 1)}
                    for p in self.players.values()]
         bullets = [{"x": round(b["x"], 1), "y": round(b["y"], 1)}
                    for b in self.bullets]
         message = {"type": "state", "tick": self.tick, "players": players,
                    "bullets": bullets,
                    "walls": self.wall_hp,
+                   "built_walls": [{"tx": tx, "ty": ty, **info}
+                                   for (tx, ty), info in self.built_walls.items()],
+                   "built_bridges": [list(tile) for tile in sorted(self.built_bridges)],
                    "bases": [{k: (round(v, 2) if isinstance(v, float) else v)
                               for k, v in base.items()} for base in self.bases],
                    "pillboxes": [{k: v for k, v in box.items() if k != "cooldown"}

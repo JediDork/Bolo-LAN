@@ -46,7 +46,10 @@ MAX_PLAYERS = 16
 
 
 class GameServer:
-    def __init__(self, port):
+    def __init__(self, port, dev_token=None):
+        # Developer controls require a per-host unpredictable secret. No
+        # client can grant itself access by simply knowing a keyboard shortcut.
+        self.dev_token = dev_token
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # Require a unique port owner on each machine to prevent two hosts.
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -241,8 +244,11 @@ class GameServer:
         if kind == "leave":
             self.remove(player_id)
         elif kind == "god_mode":
-            # Test-only server-authoritative invulnerability, opt-in per player.
-            # No arbitrary client-side health or position modification.
+            # Developer-only: regular LAN players cannot activate god mode
+            # even if they manually send the packet or modify their client.
+            if (not self.dev_token
+                    or message.get("dev_token") != self.dev_token):
+                return
             player["god_mode"] = not player["god_mode"]
             if player["god_mode"]:
                 player["hp"] = 100

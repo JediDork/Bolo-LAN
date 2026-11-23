@@ -8,12 +8,13 @@ from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
                     ACCELERATION, PILLBOX_RANGE, PILLBOX_DETECTION_RANGE,
                     PILLBOX_TURN_SPEED, FOREST_PENETRATION_TILES)
 from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
+                    WORLD_W, WORLD_H,
                     wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
 from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
                      terrain_at, water_at, ROAD_TILES, LAKE_TILES,
                      FOREST_TILES, RIVER_TILES, BRIDGE_TILES,
-                     initial_wall_hp, neighbors)
+                     initial_wall_hp, neighbors, RIVER_PATHS, LAKE_PATCHES)
 from construction import BUILD_RANGE, BUILD_COSTS, START_MATERIAL, MAX_MATERIAL
 
 
@@ -264,6 +265,59 @@ class GameServerTests(unittest.TestCase):
         delta = (p["angle"] - before + math.pi) % (2 * math.pi) - math.pi
         self.assertLess(delta, 0)
 
+    def test_tracking_pillbox_does_not_fire_first_beyond_inner_range(self):
+        box = self.server.pillboxes[0]
+        box.update(x=250.0, y=350.0, angle=math.pi / 2,
+                   cooldown=0.0, retaliation_timer=0.0, retaliation_target=0)
+        player = self.server.players[1]
+        player.update(x=250.0, y=350.0 + PILLBOX_RANGE + 50,
+                      turret=-math.pi / 2, speed=0.0)
+        for other in self.server.pillboxes[1:]:
+            other["hp"] = 0
+        for _ in range(65):
+            self.server.update_pillboxes(1 / 30)
+        self.assertTrue(box["tracking"])
+        self.assertFalse(self.server.bullets)
+
+    def test_aimed_shot_provokes_visible_pillbox(self):
+        box = self.server.pillboxes[0]
+        box.update(x=250.0, y=350.0, angle=math.pi / 2,
+                   cooldown=0.0, retaliation_timer=0.0, retaliation_target=0)
+        player = self.server.players[1]
+        player.update(x=250.0, y=350.0 + PILLBOX_RANGE + 50,
+                      turret=-math.pi / 2, speed=0.0)
+        for other in self.server.pillboxes[1:]:
+            other["hp"] = 0
+        self.assertTrue(self.server.can_see(box["x"], box["y"],
+                                             player["x"], player["y"]))
+        self.server.alert_pillboxes(player, -math.pi / 2)
+        self.assertEqual(box["retaliation_target"], player["id"])
+        self.assertGreater(box["retaliation_timer"], 0)
+        for _ in range(80):
+            self.server.update_pillboxes(1 / 30)
+        self.assertTrue(self.server.bullets)
+
+    def test_unrelated_shot_does_not_provoke_pillbox(self):
+        box = self.server.pillboxes[0]
+        box.update(x=250.0, y=350.0)
+        player = self.server.players[1]
+        player.update(x=250.0, y=350.0 + PILLBOX_RANGE + 40)
+        self.server.alert_pillboxes(player, math.pi / 2)
+        self.assertEqual(box["retaliation_timer"], 0.0)
+
+    def test_walls_block_retaliation_and_target_detection(self):
+        box = self.server.pillboxes[0]
+        index = next(i for i, hp in enumerate(self.server.wall_hp) if hp > 0)
+        wx, wy, ww, wh = WALL_SECTIONS[index]
+        box.update(x=wx - 80.0, y=wy + wh / 2,
+                   retaliation_timer=0.0, retaliation_target=0)
+        player = self.server.players[1]
+        player.update(x=wx + ww + 80.0, y=wy + wh / 2)
+        self.assertFalse(self.server.can_see(box["x"], box["y"],
+                                              player["x"], player["y"]))
+        self.server.alert_pillboxes(player, math.pi)
+        self.assertEqual(box["retaliation_timer"], 0.0)
+
     def test_god_mode_toggles_and_blocks_damage(self):
         p = self.server.players[1]
         self.assertFalse(p["god_mode"])
@@ -473,17 +527,24 @@ class ConstructionGridTests(unittest.TestCase):
         for base in BASE_TILES:
             self.assertIn(base, visited)
 
-    def test_river_one_tile_wide(self):
-        rows = sorted({ty for _, ty in RIVER_TILES})
-        self.assertGreater(len(rows), 20)
-        self.assertEqual(rows, list(range(rows[0], rows[-1] + 1)))
-        previous = None
-        for row in rows:
-            columns = [tx for tx, ty in RIVER_TILES if ty == row]
-            self.assertEqual(len(columns), 1)
-            if previous is not None:
-                self.assertLessEqual(abs(columns[0] - previous), 1)
-            previous = columns[0]
+    def test_rivers_start_at_world_edge_and_finish_at_lake(self):
+        self.assertGreaterEqual(len(RIVER_PATHS), 2)
+        for path in RIVER_PATHS:
+            self.assertGreater(len(path), 10)
+            self.assertTrue(path[0][0] in (0, WORLD_W // GRID_SIZE - 1)
+                            or path[0][1] in (0, WORLD_H // GRID_SIZE - 1))
+            last = path[-1]
+            self.assertTrue(any((last[0] + dx, last[1] + dy) in LAKE_TILES
+                                for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1))),
+                            "River must flow directly into a lake")
+            for a, b in zip(path, path[1:]):
+                self.assertEqual(abs(a[0] - b[0]) + abs(a[1] - b[1]), 1,
+                                 "River must remain one grid cell wide and continuous")
+
+    def test_world_is_four_times_original_play_area(self):
+        self.assertEqual((WORLD_W, WORLD_H), (5200, 3800))
+        self.assertGreaterEqual(len(BASE_TILES), 24)
+        self.assertGreaterEqual(len(PILLBOX_SITES), 16)
 
     def test_road_bridges_cross_river(self):
         self.assertTrue(BRIDGE_TILES)

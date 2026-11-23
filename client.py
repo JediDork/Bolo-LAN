@@ -13,6 +13,8 @@ import pygame
 from shared import PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W
 from effects import Effects, draw_details, draw_minimap
 from display import viewport, to_logical
+from renderer import draw_frame, RENDER_W, RENDER_H
+from audio import SoundBank, SAMPLE_RATE
 
 WIDTH, HEIGHT = 1200, 760
 BG = (45, 82, 61)
@@ -172,15 +174,18 @@ def main(argv=None):
     sock.setblocking(False)
     print(f"Connecting to {addr[0]}:{addr[1]}")
     send(sock, addr, {"type": "join", "name": args.name})
+    pygame.mixer.pre_init(SAMPLE_RATE, -16, 1, 512)
     pygame.init()
     # Fullscreen uses monitor native resolution, but all gameplay is drawn into
     # the exact same logical 1200x760 viewport on every machine.
     display = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     view = viewport(*display.get_size(), WIDTH, HEIGHT)
-    screen = pygame.Surface((WIDTH, HEIGHT)).convert()
-    pygame.display.set_caption("Bolo-LAN | Field Test v0.4")
-    font = pygame.font.SysFont("consolas", 16, bold=True)
-    heading = pygame.font.SysFont("consolas", 23, bold=True)
+    # Render *new* detail at 2x, then filter to the monitor without zooming out.
+    screen = pygame.Surface((RENDER_W, RENDER_H)).convert()
+    pygame.display.set_caption("Bolo-LAN | Field Test v0.5")
+    fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
+             "heading": pygame.font.SysFont("consolas", 46, bold=True)}
+    audio = SoundBank()
     clock = pygame.time.Clock()
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
@@ -200,6 +205,8 @@ def main(argv=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                audio.toggle_mute()
         for _ in range(96):
             try:
                 data, incoming = sock.recvfrom(65535)
@@ -220,6 +227,14 @@ def main(argv=None):
                     if event["id"] > last_event_id:
                         effects.burst(event["type"], event["x"], event["y"],
                                       event.get("angle", 0))
+                        # Audio uses distance to the local tank, not screen position.
+                        listener = next((p for p in message.get("players", [])
+                                         if p["id"] == local_id), None)
+                        distance = (math.hypot(event["x"] - listener["x"],
+                                               event["y"] - listener["y"])
+                                    if listener else 0.0)
+                        if local_id is not None:
+                            audio.play(event["type"], distance)
                         last_event_id = event["id"]
                 state = message
                 last_snapshot = time.monotonic()
@@ -286,36 +301,20 @@ def main(argv=None):
                     effects.dust(moving["x"] - math.cos(a) * 20,
                                  moving["y"] - math.sin(a) * 20)
             dust_timer = 0.08
-        draw_ground(screen, camera, state.get("walls", []))
-        for bullet in state["bullets"]:
-            bx, by = xy(bullet["x"], bullet["y"], camera)
-            pygame.draw.circle(screen, (255, 170, 68), (bx, by), 6)
-            pygame.draw.circle(screen, (255, 235, 164), (bx, by), 3)
-        for item in visual_players.values():
-            tank(screen, item, camera, font, local_id)
-        effects.draw(screen, camera)
-        draw_minimap(screen, list(visual_players.values()), local_id, camera, WIDTH, HEIGHT)
-        # Compact bottom-left HUD leaves the *entire upper map edge* visible.
-        panel = pygame.Surface((715, 72), pygame.SRCALPHA)
-        panel.fill((16, 30, 29, 208))
-        screen.blit(panel, (8, HEIGHT - 81))
-        title = heading.render("BOLO-LAN  /  FIELD TEST v0.4", True, (235, 233, 208))
-        screen.blit(title, (20, HEIGHT - 75))
-        info = font.render(f"HOST {host}:{args.port} | PLAYERS {len(state['players'])} | WASD DRIVE | MOUSE AIM | CLICK FIRE",
-                           True, (191, 208, 195))
-        screen.blit(info, (20, HEIGHT - 46))
-        if player:
-            health = font.render(f"ARMOUR {player['hp']:3d}%     KILLS {player['score']}", True, (252, 245, 205))
-            screen.blit(health, (20, HEIGHT - 25))
-        if local_id is None or now - last_snapshot > 3:
-            status = "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST"
-            label = heading.render(status, True, (255, 203, 110))
-            screen.blit(label, (WIDTH // 2 - label.get_width() // 2, HEIGHT // 2))
-        # Black letterboxing: widescreen and 4K users NEVER see more terrain.
+        connected = local_id is not None and now - last_snapshot <= 3
+        draw_frame(
+            screen, camera, state.get("walls", []), state["bullets"],
+            list(visual_players.values()), local_id, effects, fonts,
+            host, args.port, connected,
+            "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST")
+        # Keep the SAME world view on all displays, with filtered scaling.
         display.fill((0, 0, 0))
         left, top, draw_width, draw_height = view
-        scaled = pygame.transform.scale(screen, (draw_width, draw_height))
-        display.blit(scaled, (left, top))
+        if (draw_width, draw_height) == screen.get_size():
+            display.blit(screen, (left, top))
+        else:
+            scaled = pygame.transform.smoothscale(screen, (draw_width, draw_height))
+            display.blit(scaled, (left, top))
         pygame.display.flip()
     send(sock, addr, {"type": "leave"})
     sock.close()

@@ -8,7 +8,7 @@ import math
 import pygame
 
 from effects import DETAILS
-from shared import WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
+from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
 from terrain import WATER, ROADS, FORESTS, terrain_at
 
 WORLD_VIEW_W, WORLD_VIEW_H = 1200, 760
@@ -28,10 +28,10 @@ def dot(surface, color, x, y, radius):
 def ground(surface, camera, wall_hp):
     surface.fill(BG)
     sx, sy = camera
-    for wx in range(int(sx // 100) * 100, int(sx + WORLD_VIEW_W) + 101, 100):
+    for wx in range(int(sx // GRID_SIZE) * GRID_SIZE, int(sx + WORLD_VIEW_W) + GRID_SIZE + 1, GRID_SIZE):
         x, _ = point(wx, 0, camera)
         pygame.draw.line(surface, (51, 91, 67), (x, 0), (x, RENDER_H), 1)
-    for wy in range(int(sy // 100) * 100, int(sy + WORLD_VIEW_H) + 101, 100):
+    for wy in range(int(sy // GRID_SIZE) * GRID_SIZE, int(sy + WORLD_VIEW_H) + GRID_SIZE + 1, GRID_SIZE):
         _, y = point(0, wy, camera)
         pygame.draw.line(surface, (51, 91, 67), (0, y), (RENDER_W, y), 1)
 
@@ -50,8 +50,8 @@ def ground(surface, camera, wall_hp):
             pygame.draw.rect(surface, (31, 72, 47), rect, border_radius=30)
             pygame.draw.rect(surface, (43, 86, 51), rect.inflate(-18, -18), border_radius=22)
             # Consistent tree crowns, never random per frame.
-            for xi in range(28, int(ww), 48):
-                for yi in range(28, int(wh), 48):
+            for xi in range(GRID_SIZE // 2, int(ww), GRID_SIZE):
+                for yi in range(GRID_SIZE // 2, int(wh), GRID_SIZE):
                     tx, ty = point(wx + xi, wy + yi, camera)
                     dot(surface, (19, 57, 36), tx + 6, ty + 7, 24)
                     dot(surface, (38, 106, 59), tx, ty, 20)
@@ -62,12 +62,14 @@ def ground(surface, camera, wall_hp):
         if rect.colliderect(surface.get_rect()):
             pygame.draw.rect(surface, (30, 85, 126), rect, border_radius=14)
             pygame.draw.rect(surface, (65, 144, 168), rect, 5, border_radius=14)
-            for offset in range(25, int(ww), 80):
-                x, y = point(wx + offset, wy + 25 + (offset % 45), camera)
+            for offset in range(GRID_SIZE // 2, int(ww), GRID_SIZE * 2):
+                x, y = point(wx + offset, wy + GRID_SIZE // 2, camera)
                 pygame.draw.arc(surface, (90, 176, 192),
                                 pygame.Rect(x, y, 55, 18), 0.2, 2.6, 3)
 
     for wx, wy, size, kind in DETAILS:
+        if terrain_at(wx, wy) != "grass":
+            continue
         px, py = point(wx, wy, camera)
         if not (-22 <= px <= RENDER_W + 22 and -22 <= py <= RENDER_H + 22):
             continue
@@ -82,6 +84,17 @@ def ground(surface, camera, wall_hp):
         else:
             dot(surface, (40, 94, 58), px + 4, py + 4, size)
             dot(surface, (57, 117, 67), px, py, size)
+
+    # Construction grid overlays all terrain, not just grass, so tile
+    # boundaries stay visible when planning roads, bases and defences.
+    for wx in range(int(sx // GRID_SIZE) * GRID_SIZE,
+                    int(sx + WORLD_VIEW_W) + GRID_SIZE + 1, GRID_SIZE):
+        x, _ = point(wx, 0, camera)
+        pygame.draw.line(surface, (92, 119, 103), (x, 0), (x, RENDER_H), 1)
+    for wy in range(int(sy // GRID_SIZE) * GRID_SIZE,
+                    int(sy + WORLD_VIEW_H) + GRID_SIZE + 1, GRID_SIZE):
+        _, y = point(0, wy, camera)
+        pygame.draw.line(surface, (92, 119, 103), (0, y), (RENDER_W, y), 1)
 
     tones = ((121, 127, 112), (109, 110, 100),
              (91, 88, 82), (72, 66, 62))
@@ -248,7 +261,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  TERRITORY TEST v0.6", True, (235, 233, 208)),
+        "BOLO-LAN  /  GRID TEST v0.8", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | CLICK FIRE | M MUTE",

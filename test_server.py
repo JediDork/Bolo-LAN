@@ -29,6 +29,15 @@ class GameServerTests(unittest.TestCase):
         self.address2 = ("127.0.0.1", 51002)
         self.server.handle(b'{"type":"join","name":"Alpha"}', self.address1)
         self.server.handle(b'{"type":"join","name":"Bravo"}', self.address2)
+        # Existing movement/combat tests need a stable, unshielded baseline.
+        # Spawn rules and grace are tested separately in SpawnAndReloadTests.
+        self.server.players[1].update(
+            x=170.0, y=170.0, angle=0.0, turret=0.0, speed=0.0,
+            angular_speed=0.0, spawn_grace=0.0)
+        self.server.players[2].update(
+            x=float(WORLD_W - 170), y=float(WORLD_H - 170),
+            angle=math.pi, turret=math.pi, speed=0.0,
+            angular_speed=0.0, spawn_grace=0.0)
 
     def tearDown(self):
         self.server.sock.close()
@@ -758,6 +767,8 @@ class PlanetWrapTests(unittest.TestCase):
         self.addr2 = ("127.0.0.1", 51002)
         self.server.handle(b'{"type":"join","name":"East"}', self.addr1)
         self.server.handle(b'{"type":"join","name":"West"}', self.addr2)
+        for player in self.server.players.values():
+            player["spawn_grace"] = 0.0
 
     def tearDown(self):
         self.server.sock.close()

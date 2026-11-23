@@ -3,22 +3,28 @@ import math
 
 PORT = 50000
 TICK_RATE = 30
-WORLD_W, WORLD_H = 2600, 1900
+WORLD_W, WORLD_H = 5200, 3800
 TANK_RADIUS = 18
 GRID_SIZE = 50
 WALL_MAX_HP = 4
 # All static construction footprints start on the 50-unit tile grid.
 # Each wall section occupies exactly one 50x50 tile.
-WALLS = [
+# Repeat the proven tactical wall arrangements across four map regions.
+_LOCAL_WALLS = (
     (300, 250, 350, 50), (600, 500, 50, 350),
     (850, 200, 450, 50), (1150, 550, 50, 400),
     (1500, 200, 50, 450), (1750, 550, 400, 50),
     (350, 1100, 400, 50), (850, 1400, 50, 350),
     (1200, 1150, 400, 50), (1800, 1150, 50, 400),
     (2100, 350, 50, 400), (2050, 1600, 300, 50),
-]
-SPAWNS = [(170, 170), (2430, 1730), (2400, 170), (170, 1730),
-          (1300, 170), (1300, 1730), (170, 960), (2430, 960)]
+)
+WALLS = [(x + ox, y + oy, w, h)
+         for ox in (0, WORLD_W // 2) for oy in (0, WORLD_H // 2)
+         for x, y, w, h in _LOCAL_WALLS]
+SPAWNS = [(170, 170), (WORLD_W - 170, WORLD_H - 170),
+          (WORLD_W - 200, 170), (170, WORLD_H - 170),
+          (WORLD_W // 2 - 200, 170), (WORLD_W // 2 + 200, WORLD_H - 170),
+          (170, WORLD_H // 2), (WORLD_W - 170, WORLD_H // 2)]
 COLORS = [(70, 200, 120), (235, 105, 90), (95, 170, 240), (238, 205, 90),
           (200, 125, 225), (80, 220, 215), (235, 150, 90), (165, 190, 100)]
 

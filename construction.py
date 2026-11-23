@@ -53,5 +53,5 @@ def near_flag(tile):
 
 def nearby_forest(tile):
     tx, ty = tile
-    return any((tx + dx, ty + dy) in FOREST_TILES
+    return any(((tx + dx) % (WORLD_W // GRID_SIZE), ty + dy) in FOREST_TILES
                for dx in (-1, 0, 1) for dy in (-1, 0, 1))

@@ -186,7 +186,7 @@ def main(argv=None):
     view = viewport(*display.get_size(), WIDTH, HEIGHT)
     # Render *new* detail at 2x, then filter to the monitor without zooming out.
     screen = pygame.Surface((RENDER_W, RENDER_H)).convert()
-    pygame.display.set_caption("Bolo-LAN | Road Builder v0.15")
+    pygame.display.set_caption("Bolo-LAN | Planet World v0.16")
     fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
              "heading": pygame.font.SysFont("consolas", 46, bold=True)}
     audio = SoundBank()

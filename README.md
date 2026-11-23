@@ -2,6 +2,14 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.20 — Respawn at your own flags
+
+- **Already own a flag?** After being destroyed, your tank respawns **only at one of your claimed flags**, never at an unclaimed objective. If several are yours, the server chooses among them.
+- **Own none?** Spawn at a free, unclaimed flag when one is available. This includes joining a match for the first time.
+- **No flags owned and none unclaimed?** Use the existing safe random-ground fallback, avoiding tanks and pillboxes.
+- If the exact centre of an owned flag is occupied, the server tries nearby positions within the claim radius. In a heavily contested area, it still keeps you on your claimed flag, using the existing three-second spawn protection to reduce instant deaths.
+- Works with the east/west planet wrap and the current six-flag map; multiplayer spawn decisions remain server-authoritative.
+
 ## Version 0.19 — Heavier driving and a visible reload cycle
 
 - **Slower tanks:** forward maximum reduced from 125 to **95 world units/s**; reverse reduced from 75 to **55 world units/s**. Roads still offer their 20% speed bonus, while forests and rivers retain the same relative slowdown. Acceleration is unchanged for this tuning pass.

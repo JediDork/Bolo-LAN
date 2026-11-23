@@ -12,7 +12,7 @@ import pygame
 from audio import SAMPLE_RATE
 
 
-ENGINE_RATES = (16, 20, 24)
+ENGINE_RATES = (21, 22, 24)
 
 
 def engine_loop(rpm_hz):
@@ -22,16 +22,24 @@ def engine_loop(rpm_hz):
     for i in range(SAMPLE_RATE):
         t = i / SAMPLE_RATE
         phase = math.tau * base * t
-        # Narrow firing impulses make this more like a diesel engine than a
-        # continuously pitched sine oscillator.
-        thump = max(0.0, math.cos(phase)) ** 6
-        low = math.sin(phase) * 0.15 + math.sin(phase * 2) * 0.055
-        pulse = (thump - 0.22) * 0.88
-        # Subtle mechanical chatter, not a high-pitched lead tone.
-        chatter = (math.sin(math.tau * 71 * t) *
-                   math.sin(math.tau * 37 * t)) * 0.048
-        rumble = math.sin(math.tau * 7 * t) * 0.05
-        value = max(-1.0, min(1.0, (pulse + low + chatter + rumble) * 0.78))
+        if base == 21:
+            # Preserve the original idle tone that tested well.
+            pulse = (math.sin(phase) * 0.55
+                     + math.sin(phase * 2) * 0.18
+                     + math.sin(phase * 3) * 0.10
+                     + math.sin(phase * 7) * 0.06
+                     + math.sin(math.tau * (base // 3) * t) * 0.12)
+            value = max(-1.0, min(1.0, pulse * 0.72))
+        else:
+            # When accelerating, switch to muted combustion knocks instead of
+            # high pitched oscillator notes.
+            thump = max(0.0, math.cos(phase)) ** 6
+            low = math.sin(phase) * 0.15 + math.sin(phase * 2) * 0.055
+            pulse = (thump - 0.22) * 0.88
+            chatter = (math.sin(math.tau * 71 * t) *
+                       math.sin(math.tau * 37 * t)) * 0.048
+            rumble = math.sin(math.tau * 7 * t) * 0.05
+            value = max(-1.0, min(1.0, (pulse + low + chatter + rumble) * 0.78))
         samples.append(round(value * 32767))
     return samples.tobytes()
 

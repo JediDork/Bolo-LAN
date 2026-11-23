@@ -3,7 +3,8 @@ import json
 import socket
 import unittest
 
-from server import GameServer, TURRET_SPEED
+from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
+                    ACCELERATION, PILLBOX_RANGE)
 from shared import WALL_SECTIONS, WALL_MAX_HP, wall_at, overlaps_wall
 from display import viewport, to_logical
 from terrain import BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at, water_at
@@ -133,6 +134,33 @@ class GameServerTests(unittest.TestCase):
             self.server.step(1 / 30)
         self.assertGreater(p["hp"], 50)
         self.assertGreater(p["ammo"], 12)
+
+    def test_reduced_drive_speed_and_acceleration(self):
+        self.assertEqual(MOVE_SPEED, 125.0)
+        self.assertEqual(REVERSE_SPEED, 75.0)
+        self.assertEqual(ACCELERATION, 115.0)
+        p = self.server.players[1]
+        self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}', self.address1)
+        self.server.step(1 / 30)
+        self.assertAlmostEqual(p["speed"], ACCELERATION / 30.0)
+        for _ in range(200):
+            self.server.step(1 / 30)
+        self.assertLessEqual(p["speed"], MOVE_SPEED * TERRAIN_SPEED["road"] + 0.01)
+
+    def test_pillbox_engages_at_extended_distance(self):
+        self.assertGreaterEqual(PILLBOX_RANGE, 800)
+        box = self.server.pillboxes[0]
+        x, y = PILLBOX_SITES[0]
+        p = self.server.players[1]
+        p.update(x=float(x + 650), y=float(y), speed=0.0)
+        # Disable the other pillboxes so this assertion tests the intended turret.
+        for other in self.server.pillboxes[1:]:
+            other["hp"] = 0
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":false}', self.address1)
+        for _ in range(25):
+            self.server.step(1 / 30)
+        self.assertTrue(any(event["type"] == "fire" and event["x"] == x
+                            for event in self.server.events))
 
     def test_pillbox_targeting_and_destruction(self):
         box = self.server.pillboxes[0]

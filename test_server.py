@@ -5,9 +5,11 @@ import unittest
 
 from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
                     ACCELERATION, PILLBOX_RANGE)
-from shared import WALL_SECTIONS, WALL_MAX_HP, wall_at, overlaps_wall
+from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
+                    wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
-from terrain import BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at, water_at
+from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
+                     water_at, ROADS, WATER, FORESTS)
 
 
 class GameServerTests(unittest.TestCase):
@@ -178,6 +180,34 @@ class GameServerTests(unittest.TestCase):
                                         "life": 1.0, "owner": 1})
             self.server.step(1 / 30)
         self.assertEqual(box["hp"], 0)
+
+
+class ConstructionGridTests(unittest.TestCase):
+    def test_wall_segments_are_exact_grid_tiles(self):
+        self.assertGreater(len(WALL_SECTIONS), 0)
+        for rect in WALL_SECTIONS:
+            x, y, w, h = rect
+            self.assertEqual((w, h), (GRID_SIZE, GRID_SIZE))
+            self.assertEqual(x % GRID_SIZE, 0)
+            self.assertEqual(y % GRID_SIZE, 0)
+
+    def test_terrain_bounds_align_to_grid(self):
+        for rect in WATER + ROADS + FORESTS + tuple(WALLS):
+            with self.subTest(rect=rect):
+                self.assertTrue(all(int(v) % GRID_SIZE == 0 for v in rect))
+
+    def test_base_and_pillbox_centres_share_grid(self):
+        for x, y in BASE_SITES + PILLBOX_SITES:
+            with self.subTest(site=(x, y)):
+                self.assertEqual(x % GRID_SIZE, GRID_SIZE // 2)
+                self.assertEqual(y % GRID_SIZE, GRID_SIZE // 2)
+                self.assertEqual(tile_to_world(*world_to_tile(x, y)), (x, y))
+
+    def test_destroyed_wall_still_clears_exactly_one_tile(self):
+        x, y, w, h = WALL_SECTIONS[0]
+        hp = [WALL_MAX_HP] * len(WALL_SECTIONS)
+        hp[0] = 0
+        self.assertFalse(overlaps_wall(x + 5, y + GRID_SIZE / 2, 3, hp))
 
 
 class ViewportTests(unittest.TestCase):

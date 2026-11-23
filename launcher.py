@@ -6,6 +6,7 @@ Usage:
 """
 import argparse
 import random
+import secrets
 import socket
 import threading
 import time
@@ -37,10 +38,15 @@ def run(argv=None):
         time.sleep(random.uniform(0.25, 1.15))
         host = find_host(args.port, timeout=0.65)
 
+    local_dev_token = None
     if not host:
         from server import GameServer
         try:
-            server = GameServer(args.port)
+            # Only the computer creating the LAN server knows this token.
+            # Never advertise it in discovery or player snapshots.
+            proposed_token = secrets.token_urlsafe(32)
+            server = GameServer(args.port, dev_token=proposed_token)
+            local_dev_token = proposed_token
         except OSError as exc:
             # Another local instance may already be starting.
             print(f"Cannot host ({exc}); searching again...")
@@ -58,7 +64,9 @@ def run(argv=None):
     client_args = ["--host", host, "--port", str(args.port)]
     if args.name:
         client_args.extend(["--name", args.name])
-    main(client_args)
+    # Pass capability in memory directly to this local client, not to peers.
+    # Remote clients auto-joining the game never receive this value.
+    main(client_args, dev_token=local_dev_token)
 
 
 if __name__ == "__main__":

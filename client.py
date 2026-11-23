@@ -17,6 +17,7 @@ from renderer import draw_frame, RENDER_W, RENDER_H
 from terrain import initial_wall_hp
 from audio import SoundBank, SAMPLE_RATE
 from engine_audio import EngineAudio
+from construction import BUILD_TOOLS
 
 WIDTH, HEIGHT = 1200, 760
 BG = (45, 82, 61)
@@ -184,7 +185,7 @@ def main(argv=None):
     view = viewport(*display.get_size(), WIDTH, HEIGHT)
     # Render *new* detail at 2x, then filter to the monitor without zooming out.
     screen = pygame.Surface((RENDER_W, RENDER_H)).convert()
-    pygame.display.set_caption("Bolo-LAN | Field Test v0.11")
+    pygame.display.set_caption("Bolo-LAN | Base Builder v0.12")
     fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
              "heading": pygame.font.SysFont("consolas", 46, bold=True)}
     audio = SoundBank()
@@ -193,7 +194,7 @@ def main(argv=None):
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
              "walls": initial_wall_hp(),
-             "bases": [], "pillboxes": []}
+             "bases": [], "pillboxes": [], "built_walls": [], "built_bridges": []}
     effects = Effects()
     visual_players = {}
     last_event_id = 0
@@ -203,6 +204,10 @@ def main(argv=None):
     previous_input = 0.0
     last_snapshot = time.monotonic()
     running = True
+    build_mode = False
+    build_part = "wall"
+    build_message = ""
+    build_message_time = 0.0
 
     while running:
         dt = min(clock.tick(60) / 1000.0, 0.05)
@@ -214,6 +219,18 @@ def main(argv=None):
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not getattr(event, 'repeat', False):
                 if local_id is not None:
                     send(sock, addr, {"type": "god_mode"})
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_b:
+                build_mode = not build_mode
+                build_message = ""
+            elif event.type == pygame.KEYDOWN and build_mode:
+                chosen = BUILD_TOOLS.get(pygame.key.name(event.key))
+                if chosen:
+                    build_part = chosen
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and build_mode and local_id is not None:
+                mx, my = to_logical(event.pos, view, WIDTH, HEIGHT)
+                tx = int((mx + camera[0]) // 50)
+                ty = int((my + camera[1]) // 50)
+                send(sock, addr, {"type": "build", "part": build_part, "tx": tx, "ty": ty})
         for _ in range(96):
             try:
                 data, incoming = sock.recvfrom(65535)
@@ -245,6 +262,9 @@ def main(argv=None):
                         last_event_id = event["id"]
                 state = message
                 last_snapshot = time.monotonic()
+            elif message.get("type") == "build_result":
+                build_message = message.get("message", "")[:60]
+                build_message_time = time.monotonic()
             elif message.get("type") == "error":
                 print(message.get("message", "Connection rejected"))
                 running = False
@@ -272,7 +292,7 @@ def main(argv=None):
             for key in ("a", "t"):
                 diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
                 visual[key] = (visual[key] + diff * blend) % math.tau
-            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo", "god_mode"):
+            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo", "material", "god_mode"):
                 visual[key] = authoritative[key]
         for pid in list(visual_players):
             if pid not in present_ids:
@@ -288,7 +308,7 @@ def main(argv=None):
         turn = int(keys[pygame.K_d] or keys[pygame.K_RIGHT]) - int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         mx, my = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
         aim = math.atan2(my + camera[1] - player["y"], mx + camera[0] - player["x"]) if player else 0.0
-        firing = bool(pygame.mouse.get_pressed()[0] or keys[pygame.K_SPACE])
+        firing = bool((not build_mode and pygame.mouse.get_pressed()[0]) or keys[pygame.K_SPACE])
         # Continuous local engine responds to authoritative velocity and input.
         # Mute also affects this layer without changing the multiplayer state.
         engine.update(dt, player.get("speed", 0.0) if player else 0.0,
@@ -314,12 +334,20 @@ def main(argv=None):
                                  moving["y"] - math.sin(a) * 20)
             dust_timer = 0.08
         connected = local_id is not None and now - last_snapshot <= 3
+        if build_message and now - build_message_time > 3.0:
+            build_message = ""
+        hovered = None
+        if build_mode:
+            hx, hy = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
+            hovered = (int((hx + camera[0]) // 50), int((hy + camera[1]) // 50))
         draw_frame(
             screen, camera, state.get("walls", []), state["bullets"],
             list(visual_players.values()), local_id, effects, fonts,
             host, args.port, connected,
             "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST",
-            state.get("bases", []), state.get("pillboxes", []))
+            state.get("bases", []), state.get("pillboxes", []),
+            state.get("built_walls", []), state.get("built_bridges", []),
+            build_mode, build_part, hovered, build_message)
         # Keep the SAME world view on all displays, with filtered scaling.
         display.fill((0, 0, 0))
         left, top, draw_width, draw_height = view

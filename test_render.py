@@ -104,6 +104,17 @@ class RenderTests(unittest.TestCase):
             self.assertNotEqual(tuple(self.surface.get_at((sx, 400))[:3]),
                                 (0, 0, 0))
 
+    def test_new_supply_and_flag_sounds_are_valid_distinct_buffers(self):
+        cues = ("material_added", "material_full", "ammo_added",
+                "ammo_full", "flag_taken", "flag_lost")
+        buffers = [_synth(kind) for kind in cues]
+        self.assertEqual(len(set(buffers)), 6)
+        for cue, sound in zip(cues, buffers):
+            with self.subTest(cue=cue):
+                self.assertGreater(len(sound), SAMPLE_RATE // 10)
+                self.assertEqual(len(sound) % 2, 0)
+                self.assertTrue(any(sound))
+
     def test_engine_layers_are_complete_loop_buffers(self):
         for hz in ENGINE_RATES:
             with self.subTest(hz=hz):

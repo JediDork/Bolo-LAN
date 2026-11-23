@@ -764,6 +764,9 @@ class SpawnAndReloadTests(unittest.TestCase):
         self.assertLessEqual(
             wrapped_distance(player["x"], player["y"],
                              base["x"], base["y"]), 55)
+        self.assertGreaterEqual(
+            wrapped_distance(player["x"], player["y"],
+                             opponent["x"], opponent["y"]), 46)
 
     def test_all_flags_owned_uses_safe_random_ground(self):
         for base in self.server.bases:

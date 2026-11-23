@@ -219,7 +219,7 @@ def main(argv=None):
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not getattr(event, 'repeat', False):
                 if local_id is not None:
                     send(sock, addr, {"type": "god_mode"})
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_b:
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_b and not getattr(event, "repeat", False):
                 build_mode = not build_mode
                 build_message = ""
             elif event.type == pygame.KEYDOWN and build_mode:

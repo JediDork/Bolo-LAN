@@ -9,7 +9,7 @@ import pygame
 
 from effects import DETAILS
 from shared import WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
-from terrain import WATER, ROADS, FORESTS
+from terrain import WATER, ROADS, FORESTS, terrain_at
 
 WORLD_VIEW_W, WORLD_VIEW_H = 1200, 760
 SCALE = 2
@@ -256,7 +256,9 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     local = next((p for p in players if p["id"] == local_id), None)
     if local:
         surface.blit(fonts["label"].render(
-            f"ARMOUR {int(local['hp']):3d}%     AMMO {local.get('ammo', 24):2d}/24     KILLS {local['score']}",
+            f"ARMOUR {int(local['hp']):3d}%  AMMO {local.get('ammo', 24):2d}/24  "
+            f"SPEED {abs(local.get('speed', 0)):.0f}  TERRAIN {terrain_at(local['x'], local['y']).upper()}  "
+            f"KILLS {local['score']}",
             True, (252, 245, 205)), (40, RENDER_H - 50))
     if not connected:
         text = fonts["heading"].render(status, True, (255, 203, 110))

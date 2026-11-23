@@ -558,7 +558,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     surface.blit(fonts["label"].render(
         (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  6 ROAD  |  CLICK PLACE  |  B EXIT"
          if build_mode else
-         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD | FIRE | B BUILD | G GOD | M MUTE"),
+         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD | FIRE | B BUILD | M MUTE"),
         True, (191, 208, 195)), (40, RENDER_H - 92))
     local = next((p for p in players if p["id"] == local_id), None)
     if local:

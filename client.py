@@ -119,12 +119,12 @@ def draw_ground(surface, camera):
     pygame.draw.rect(surface, (199, 208, 168), bounds, 5)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Bolo-LAN multiplayer client")
     parser.add_argument("--host", help="Host LAN IP (auto-discover if omitted)")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--name", default=os.environ.get("USERNAME", "Tank")[:16])
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     host = args.host or discover(args.port)
     if not host:

@@ -80,21 +80,34 @@ def make_terrain_cache():
                 pygame.draw.rect(result, (139, 122, 94), rect)
 
     # The river flows beneath raised bridge decking at crossings.
-    for mask, deep, rim, radius in (
-        (RIVER_TILES, (38, 103, 137), (76, 153, 171), 37),
-        (LAKE_TILES, (29, 85, 127), (70, 149, 175), 39),
-    ):
-        for tx, ty in sorted(mask):
-            px = (tx * GRID_SIZE + GRID_SIZE / 2) * SCALE
-            py = (ty * GRID_SIZE + GRID_SIZE / 2) * SCALE
-            center = (round(px), round(py))
-            pygame.draw.circle(result, (75, 106, 95), center, (radius + 4) * SCALE)
-            pygame.draw.circle(result, rim, center, radius * SCALE)
-            pygame.draw.circle(result, deep, center, (radius - 5) * SCALE)
-            if (tx * 13 + ty * 3) % 4 == 0:
-                pygame.draw.arc(result, (106, 180, 188),
-                                pygame.Rect(round(px - 19 * SCALE), round(py - 6 * SCALE),
-                                            38 * SCALE, 16 * SCALE), 0.3, 2.7, 2)
+    # River: one cell per row, joined as a narrow curved watercourse.
+    # Drawing connecting strokes avoids gaps at diagonal bends without
+    # painting a second full tile alongside the river.
+    river_path = sorted(RIVER_TILES, key=lambda tile: tile[1])
+    for colour, width in (((74, 117, 120), 56),
+                          ((73, 150, 170), 50),
+                          ((38, 103, 137), 44)):
+        for before, after in zip(river_path, river_path[1:]):
+            x0 = round((before[0] + 0.5) * size)
+            y0 = round((before[1] + 0.5) * size)
+            x1 = round((after[0] + 0.5) * size)
+            y1 = round((after[1] + 0.5) * size)
+            pygame.draw.line(result, colour, (x0, y0), (x1, y1), width * SCALE)
+        for tx, ty in river_path:
+            pygame.draw.circle(result, colour,
+                               (round((tx + 0.5) * size), round((ty + 0.5) * size)),
+                               width * SCALE // 2)
+    # Deep lakes retain broader, irregular shorelines.
+    for tx, ty in sorted(LAKE_TILES):
+        px = round((tx + 0.5) * size)
+        py = round((ty + 0.5) * size)
+        pygame.draw.circle(result, (75, 106, 95), (px, py), 43 * SCALE)
+        pygame.draw.circle(result, (70, 149, 175), (px, py), 39 * SCALE)
+        pygame.draw.circle(result, (29, 85, 127), (px, py), 34 * SCALE)
+        if (tx * 13 + ty * 3) % 4 == 0:
+            pygame.draw.arc(result, (106, 180, 188),
+                            pygame.Rect(px - 19 * SCALE, py - 6 * SCALE,
+                                        38 * SCALE, 16 * SCALE), 0.3, 2.7, 2)
 
     # Prebuilt bridges occupy the road/river intersection cells. These are
     # fast crossings; unbridged river tiles remain very slow for tanks.

@@ -37,6 +37,44 @@ MAX_CHUNKS = 20
 _TERRAIN_CHUNKS = OrderedDict()
 
 
+def draw_road_network(surface, road_tiles, to_screen, visible_tiles=None):
+    """Paint continuous road lanes with caps ONLY at true dead ends.
+
+    No circle is stamped onto every road cell. Drawing ALL border pieces
+    before ALL roadbed pieces eliminates the internal semicircular seams
+    that appeared when overlapping disk tiles were drawn individually.
+    """
+    if visible_tiles is None:
+        visible_tiles = road_tiles
+    visible_tiles = sorted(visible_tiles)
+    for colour, width in (((95, 83, 66), 54),
+                          ((139, 122, 94), 44)):
+        thick = round(width * SCALE)
+        for tx, ty in visible_tiles:
+            x, y = to_screen((tx + 0.5) * GRID_SIZE,
+                             (ty + 0.5) * GRID_SIZE)
+            half = thick // 2
+            pygame.draw.rect(surface, colour,
+                             pygame.Rect(x - half, y - half, thick, thick))
+            # Orthogonal edge joins form one uninterrupted road surface.
+            for nx, ny in ((tx + 1, ty), (tx, ty + 1)):
+                if (nx, ny) in road_tiles:
+                    ex, ey = to_screen((nx + 0.5) * GRID_SIZE,
+                                       (ny + 0.5) * GRID_SIZE)
+                    if nx != tx:
+                        pygame.draw.rect(surface, colour,
+                                         (x, y - half, ex - x, thick))
+                    else:
+                        pygame.draw.rect(surface, colour,
+                                         (x - half, y, thick, ey - y))
+        # Only exposed terminal cells receive a round end.
+        for tx, ty in visible_tiles:
+            if sum((n in road_tiles) for n in neighbors((tx, ty))) <= 1:
+                x, y = to_screen((tx + 0.5) * GRID_SIZE,
+                                 (ty + 0.5) * GRID_SIZE)
+                pygame.draw.circle(surface, colour, (x, y), thick // 2)
+
+
 def make_terrain_chunk(cx, cy):
     """Draw the world region around one chunk at full 2x resolution.
 
@@ -85,22 +123,9 @@ def make_terrain_chunk(cx, cy):
             pygame.draw.circle(layer, (82, 137, 80),
                                (x - 10 * SCALE, y - 12 * SCALE), 5 * SCALE)
 
-    # Connected roads: each tile draws an overlapping disk and joins to its
-    # neighbours, giving tracks rather than isolated circular medallions.
-    for tx, ty in area:
-        if (tx, ty) not in ROAD_TILES:
-            continue
-        x, y = local((tx + 0.5) * GRID_SIZE, (ty + 0.5) * GRID_SIZE)
-        for neighbour in neighbors((tx, ty)):
-            if neighbour in ROAD_TILES:
-                nx, ny = local((neighbour[0] + 0.5) * GRID_SIZE,
-                               (neighbour[1] + 0.5) * GRID_SIZE)
-                pygame.draw.line(layer, (95, 83, 66),
-                                 (x, y), (nx, ny), 54 * SCALE)
-                pygame.draw.line(layer, (139, 122, 94),
-                                 (x, y), (nx, ny), 44 * SCALE)
-        pygame.draw.circle(layer, (95, 83, 66), (x, y), 27 * SCALE)
-        pygame.draw.circle(layer, (139, 122, 94), (x, y), 22 * SCALE)
+    # Two-pass continuous road drawing; no tiled semicircle artifacts.
+    road_cells = [tile for tile in area if tile in ROAD_TILES]
+    draw_road_network(layer, ROAD_TILES, local, road_cells)
 
     # Each river runs continuously from the outer map boundary into its lake.
     # No circle-by-circle lake artwork: lakes are ONE filled shoreline polygon.
@@ -189,7 +214,7 @@ def make_terrain_chunk(cx, cy):
     return layer
 
 
-def ground(surface, camera, wall_hp):
+def ground(surface, camera, wall_hp, built_roads=()):
     left = max(0, int(camera[0] // CHUNK_WORLD))
     top = max(0, int(camera[1] // CHUNK_WORLD))
     right = min(math.ceil(WORLD_W / CHUNK_WORLD),
@@ -212,6 +237,16 @@ def ground(surface, camera, wall_hp):
             crop = pygame.Rect(CHUNK_PAD * SCALE, CHUNK_PAD * SCALE,
                                CHUNK_WORLD * SCALE, CHUNK_WORLD * SCALE)
             surface.blit(chunk, (dx, dy), crop)
+    # User-built road sections appear instantly, using the same uninterrupted
+    # geometry as the baked tracks. Redraw their immediate join neighbourhood
+    # so road ends turn into smooth junctions rather than overlapping circles.
+    if built_roads:
+        dynamic = {tuple(tile) for tile in built_roads}
+        connected = ROAD_TILES | dynamic
+        touched = dynamic | {n for tile in dynamic for n in neighbors(tile)
+                             if n in connected}
+        draw_road_network(surface, connected,
+                          lambda x, y: point(x, y, camera), touched)
     # Wall damage remains dynamic and never gets baked into terrain.
     tones = ((121, 127, 112), (109, 110, 100),
              (91, 88, 82), (72, 66, 62))

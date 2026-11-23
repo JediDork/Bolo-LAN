@@ -260,7 +260,7 @@ def main(argv=None):
                         continue
                     kind = event["type"]
                     if kind not in ("material_added", "material_full",
-                                    "ammo_added", "ammo_full",
+                                    "ammo_added", "ammo_full", "reload",
                                     "flag_taken", "flag_lost"):
                         effects.burst(kind, event["x"], event["y"],
                                       event.get("angle", 0))

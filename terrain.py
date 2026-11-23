@@ -120,9 +120,7 @@ def route_to(start, goal, existing):
                 previous[nxt] = tile
                 serial += 1
                 distance = abs(nxt[0] - goal[0]) + abs(nxt[1] - goal[1])
-                frontier.append((tentative + distance * 0.35, serial, nxt))
-                # Keep heap ordering instead of sorting every iteration.
-                heapq.heapify(frontier)
+                heapq.heappush(frontier, (tentative + distance * 0.35, serial, nxt))
     raise ValueError(f"No road route from {start} to {goal}")
 
 

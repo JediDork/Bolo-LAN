@@ -12,6 +12,7 @@ from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
                      terrain_at, water_at, ROAD_TILES, LAKE_TILES,
                      FOREST_TILES, RIVER_TILES, BRIDGE_TILES,
                      initial_wall_hp, neighbors)
+from construction import BUILD_RANGE, BUILD_COSTS, START_MATERIAL, MAX_MATERIAL
 
 
 class GameServerTests(unittest.TestCase):
@@ -236,6 +237,107 @@ class GameServerTests(unittest.TestCase):
                                         "life": 1.0, "owner": 1})
             self.server.step(1 / 30)
         self.assertEqual(box["hp"], 0)
+
+
+    def test_build_wall_collision_and_four_hit_destruction(self):
+        p = self.server.players[1]
+        # Seek an available nearby build tile without changing gameplay state.
+        possible = None
+        for tx in range(4, 48):
+            for ty in range(4, 33):
+                x, y = tile_to_world(tx, ty)
+                p.update(x=float(x + 100), y=float(y + 100), speed=0)
+                if self.server.build(p, "wall", tx, ty):
+                    possible = (tx, ty)
+                    break
+            if possible:
+                break
+        self.assertIsNotNone(possible)
+        wall = self.server.built_walls[possible]
+        self.assertEqual(wall["hp"], 4)
+        self.assertEqual(p["material"], START_MATERIAL - BUILD_COSTS["wall"])
+        x, y = tile_to_world(*possible)
+        self.assertTrue(self.server.blocked(x, y))
+        for expected in (3, 2, 1, 0):
+            tile_x, tile_y = possible
+            sx, sy = tile_x * GRID_SIZE - 13, tile_y * GRID_SIZE + 25
+            key = self.server.built_wall_hit(sx, sy, sx + 28, sy)
+            self.assertEqual(key, possible)
+            self.server.built_walls[key]["hp"] -= 1
+            if expected == 0:
+                del self.server.built_walls[key]
+            else:
+                self.assertEqual(self.server.built_walls[key]["hp"], expected)
+        self.assertNotIn(possible, self.server.built_walls)
+
+    def test_construction_rejects_invalid_or_remote_requests(self):
+        p = self.server.players[1]
+        original_material = p["material"]
+        self.assertFalse(self.server.build(p, "wall", "10", 10))
+        self.assertFalse(self.server.build(p, "wall", -1, 0))
+        self.assertFalse(self.server.build(p, "wall", 999, 10))
+        self.assertFalse(self.server.build(p, "wall", 25, 37))
+        self.assertFalse(self.server.build(p, "wall", 1.0, 1))
+        self.assertFalse(self.server.build(p, "bridge", 1, 1))
+        self.assertEqual(p["material"], original_material)
+
+    def test_material_recharges_at_own_base(self):
+        p = self.server.players[1]
+        p.update(x=float(BASE_SITES[0][0]), y=float(BASE_SITES[0][1]),
+                 speed=0, material=5.0)
+        self.server.bases[0]["owner"] = p["id"]
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":false}',
+                           self.address1)
+        self.server.step(1 / 30)
+        self.assertGreater(p["material"], 5)
+        self.assertLessEqual(p["material"], MAX_MATERIAL)
+
+    def test_build_bridge_is_fast_and_removable(self):
+        p = self.server.players[1]
+        tile = next(tile for tile in sorted(RIVER_TILES)
+                    if tile not in BRIDGE_TILES)
+        x, y = tile_to_world(*tile)
+        p.update(x=float(x + 75), y=float(y + 75),
+                 material=float(MAX_MATERIAL), speed=0)
+        self.assertTrue(self.server.build(p, "bridge", *tile))
+        self.assertIn(tile, self.server.built_bridges)
+        # On a bridge, authoritative driving target uses road speed.
+        p["x"], p["y"] = float(x), float(y)
+        self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}',
+                           self.address1)
+        self.server.step(1 / 30)
+        self.assertGreater(p["speed"], 0)
+        p["build_timer"] = 0.0
+        p["material"] = MAX_MATERIAL
+        self.assertTrue(self.server.build(p, "remove", *tile))
+        self.assertNotIn(tile, self.server.built_bridges)
+
+    def test_builder_refuses_building_on_tank(self):
+        p = self.server.players[1]
+        tx, ty = world_to_tile(p["x"], p["y"])
+        self.assertFalse(self.server.build(p, "wall", tx, ty))
+
+    def test_build_wall_repairs_and_removes(self):
+        p = self.server.players[1]
+        possible = None
+        for tx in range(5, 47):
+            for ty in range(5, 31):
+                x, y = tile_to_world(tx, ty)
+                p.update(x=float(x + 110), y=float(y), speed=0)
+                if self.server.build(p, "wall", tx, ty):
+                    possible = (tx, ty)
+                    break
+            if possible:
+                break
+        self.assertIsNotNone(possible)
+        wall = self.server.built_walls[possible]
+        wall["hp"] = 2
+        p["build_timer"] = 0
+        self.assertTrue(self.server.build(p, "repair", *possible))
+        self.assertEqual(wall["hp"], 3)
+        p["build_timer"] = 0
+        self.assertTrue(self.server.build(p, "remove", *possible))
+        self.assertNotIn(possible, self.server.built_walls)
 
 
 class ConstructionGridTests(unittest.TestCase):

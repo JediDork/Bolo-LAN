@@ -536,7 +536,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  ROAD CONSTRUCTION v0.15", True, (235, 233, 208)),
+        "BOLO-LAN  /  PLANET WORLD v0.16", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  6 ROAD  |  CLICK PLACE  |  B EXIT"

@@ -20,7 +20,7 @@ TURN_ACCELERATION = 7.5
 TURN_DRAG = 10.0
 CAPTURE_TIME = 2.5
 BASE_RADIUS = 54
-PILLBOX_RANGE = 550
+PILLBOX_RANGE = 850
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
@@ -312,7 +312,7 @@ class GameServer:
                                  "y": box["y"] + math.sin(angle) * 24,
                                  "vx": math.cos(angle) * SHELL_SPEED,
                                  "vy": math.sin(angle) * SHELL_SPEED,
-                                 "life": 1.10, "owner": -1, "damage": 18})
+                                 "life": 1.45, "owner": -1, "damage": 18})
             self.event("fire", box["x"], box["y"], angle=angle)
             box["cooldown"] = 1.0
 

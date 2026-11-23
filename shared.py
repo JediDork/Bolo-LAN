@@ -1,19 +1,21 @@
 """Shared protocol and deterministic world constants."""
 import math
-import random
 
 PORT = 50000
 TICK_RATE = 30
 WORLD_W, WORLD_H = 2600, 1900
 TANK_RADIUS = 18
+GRID_SIZE = 50
 WALL_MAX_HP = 4
+# All static construction footprints start on the 50-unit tile grid.
+# Each wall section occupies exactly one 50x50 tile.
 WALLS = [
-    (300, 270, 360, 55), (600, 480, 55, 380),
-    (870, 220, 420, 55), (1150, 560, 60, 390),
-    (1490, 210, 55, 460), (1770, 570, 390, 55),
-    (350, 1120, 420, 55), (850, 1400, 55, 330),
-    (1200, 1150, 420, 55), (1800, 1150, 55, 410),
-    (2080, 340, 55, 420), (2030, 1580, 300, 55),
+    (300, 250, 350, 50), (600, 500, 50, 350),
+    (850, 200, 450, 50), (1150, 550, 50, 400),
+    (1500, 200, 50, 450), (1750, 550, 400, 50),
+    (350, 1100, 400, 50), (850, 1400, 50, 350),
+    (1200, 1150, 400, 50), (1800, 1150, 50, 400),
+    (2100, 350, 50, 400), (2050, 1600, 300, 50),
 ]
 SPAWNS = [(170, 170), (2430, 1730), (2400, 170), (170, 1730),
           (1300, 170), (1300, 1730), (170, 960), (2430, 960)]
@@ -25,19 +27,27 @@ COLORS = [(70, 200, 120), (235, 105, 90), (95, 170, 240), (238, 205, 90),
 def make_wall_sections():
     sections = []
     for x, y, w, h in WALLS:
-        if w >= h:
-            count = math.ceil(w / 55)
-            for i in range(count):
-                start = round(w * i / count)
-                end = round(w * (i + 1) / count)
-                sections.append((x + start, y, end - start, h))
+        assert all(value % GRID_SIZE == 0 for value in (x, y, w, h))
+        if w > h:
+            sections.extend((x + offset, y, GRID_SIZE, GRID_SIZE)
+                            for offset in range(0, w, GRID_SIZE))
         else:
-            count = math.ceil(h / 55)
-            for i in range(count):
-                start = round(h * i / count)
-                end = round(h * (i + 1) / count)
-                sections.append((x, y + start, w, end - start))
+            sections.extend((x, y + offset, GRID_SIZE, GRID_SIZE)
+                            for offset in range(0, h, GRID_SIZE))
     return tuple(sections)
+
+
+def grid_center(tile):
+    """Centre coordinate of a grid-aligned tile (for turrets, bases, etc)."""
+    return tile * GRID_SIZE + GRID_SIZE // 2
+
+
+def world_to_tile(x, y):
+    return int(x // GRID_SIZE), int(y // GRID_SIZE)
+
+
+def tile_to_world(tile_x, tile_y):
+    return grid_center(tile_x), grid_center(tile_y)
 
 
 WALL_SECTIONS = make_wall_sections()

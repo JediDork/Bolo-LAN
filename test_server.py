@@ -172,20 +172,53 @@ class GameServerTests(unittest.TestCase):
             self.server.step(1 / 30)
         self.assertLessEqual(p["speed"], MOVE_SPEED * TERRAIN_SPEED["road"] + 0.01)
 
-    def test_pillbox_engages_at_extended_distance(self):
-        self.assertGreaterEqual(PILLBOX_RANGE, 800)
-        box = self.server.pillboxes[0]
+    def test_pillbox_fires_only_once_visible_near_viewport_edge(self):
+        # Camera height is 760 world units, so +/-380 is visible vertically.
+        # The defensive range must be shorter to avoid offscreen attacks.
+        self.assertGreater(PILLBOX_RANGE, 300)
+        self.assertLess(PILLBOX_RANGE, 380)
         x, y = PILLBOX_SITES[0]
         p = self.server.players[1]
-        p.update(x=float(x + 650), y=float(y), speed=0.0)
-        # Disable the other pillboxes so this assertion tests the intended turret.
         for other in self.server.pillboxes[1:]:
             other["hp"] = 0
         self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":false}', self.address1)
+        # Outside firing range: no turret should shoot.
+        p.update(x=float(x), y=float(y + PILLBOX_RANGE + 25), speed=0.0)
         for _ in range(25):
             self.server.step(1 / 30)
-        self.assertTrue(any(event["type"] == "fire" and event["x"] == x
-                            for event in self.server.events))
+        self.assertFalse(any(e["type"] == "fire" and e["x"] == x
+                             for e in self.server.events))
+        # Move just inside visible engagement range.
+        p.update(x=float(x), y=float(y + PILLBOX_RANGE - 25), speed=0.0)
+        for _ in range(35):
+            self.server.step(1 / 30)
+        self.assertTrue(any(e["type"] == "fire" and e["x"] == x
+                            for e in self.server.events))
+
+    def test_god_mode_toggles_and_blocks_damage(self):
+        p = self.server.players[1]
+        self.assertFalse(p["god_mode"])
+        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.assertTrue(p["god_mode"])
+        self.assertEqual(p["hp"], 100)
+        self.server.bullets.append({"x": p["x"] - 30, "y": p["y"],
+                                    "vx": 680.0, "vy": 0.0,
+                                    "life": 1.0, "owner": 2})
+        self.server.step(1 / 30)
+        self.assertEqual(p["hp"], 100)
+        self.assertLessEqual(p["respawn"], 0.0)
+        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.assertFalse(p["god_mode"])
+        self.server.bullets.append({"x": p["x"] - 30, "y": p["y"],
+                                    "vx": 680.0, "vy": 0.0,
+                                    "life": 1.0, "owner": 2})
+        self.server.step(1 / 30)
+        self.assertLess(p["hp"], 100)
+
+    def test_god_mode_is_per_player(self):
+        self.server.handle(b'{"type":"god_mode"}', self.address1)
+        self.assertTrue(self.server.players[1]["god_mode"])
+        self.assertFalse(self.server.players[2]["god_mode"])
 
     def test_pillbox_targeting_and_destruction(self):
         box = self.server.pillboxes[0]

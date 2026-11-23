@@ -307,7 +307,7 @@ def main(argv=None):
             for key in ("a", "t"):
                 diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
                 visual[key] = (visual[key] + diff * blend) % math.tau
-            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo", "material", "god_mode"):
+            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo", "material", "god_mode", "reload", "reload_duration"):
                 visual[key] = authoritative[key]
         for pid in list(visual_players):
             if pid not in present_ids:

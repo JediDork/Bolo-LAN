@@ -76,14 +76,6 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (19, 29, 28), points)
     pygame.draw.polygon(surface, color, points, 0)
     pygame.draw.polygon(surface, (20, 32, 31), points, 2)
-    # High contrast forward-direction chevron fixed to the HULL (not turret).
-    # Its broad tip remains visible even when the turret points backwards.
-    arrow = []
-    for forward, side in ((25, 0), (9, -10), (13, 0), (9, 10)):
-        arrow.append((int(x + ca * forward - sa * side),
-                      int(y + sa * forward + ca * side)))
-    pygame.draw.polygon(surface, (255, 227, 91), arrow)
-    pygame.draw.polygon(surface, (35, 36, 24), arrow, 2)
     # Two animated-looking tread rails, oriented with hull.
     for side in (-1, 1):
         rail = []
@@ -101,6 +93,14 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.line(surface, (165, 176, 153), (x, y), end, 6)
     pygame.draw.circle(surface, (23, 34, 32), (x, y), 13)
     pygame.draw.circle(surface, color, (x, y), 10)
+    # High contrast forward-direction chevron fixed to the HULL (not turret).
+    # Its broad tip remains visible even when the turret points backwards.
+    arrow = []
+    for forward, side in ((25, 0), (9, -10), (13, 0), (9, 10)):
+        arrow.append((int(x + ca * forward - sa * side),
+                      int(y + sa * forward + ca * side)))
+    pygame.draw.polygon(surface, (255, 227, 91), arrow)
+    pygame.draw.polygon(surface, (35, 36, 24), arrow, 2)
     if player["id"] == local_id:
         pygame.draw.circle(surface, (246, 244, 174), (x, y), 30, 2)
     label = font.render(f'{player["name"]}  {player["hp"]}%', True, (242, 242, 229))

@@ -238,6 +238,9 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (35, 36, 24), arrow, 3)
     if player["id"] == local_id:
         pygame.draw.circle(surface, (246, 244, 174), (x, y), 60, 4)
+    if player.get("god_mode"):
+        # Gold shield ring communicates invulnerability to all LAN players.
+        pygame.draw.circle(surface, (255, 222, 90), (x, y), 38 * SCALE, 4)
     label = font.render(f'{player["name"]}  {int(player["hp"])}%', True, (242, 242, 229))
     surface.blit(label, (x - label.get_width() // 2, y - 90))
 
@@ -351,17 +354,18 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  BRIDGE TEST v0.10", True, (235, 233, 208)),
+        "BOLO-LAN  /  RANGE TEST v0.11", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
-        f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | CLICK FIRE | M MUTE",
+        f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | FIRE | G GOD | M MUTE",
         True, (191, 208, 195)), (40, RENDER_H - 92))
     local = next((p for p in players if p["id"] == local_id), None)
     if local:
         surface.blit(fonts["label"].render(
             f"ARMOUR {int(local['hp']):3d}%  AMMO {local.get('ammo', 24):2d}/24  "
             f"SPEED {abs(local.get('speed', 0)):.0f}  TERRAIN {terrain_at(local['x'], local['y']).upper()}  "
-            f"KILLS {local['score']}",
+            f"KILLS {local['score']}  "
+            f"{'[GOD MODE ON]' if local.get('god_mode') else 'G: GOD MODE OFF'}",
             True, (252, 245, 205)), (40, RENDER_H - 50))
     if not connected:
         text = fonts["heading"].render(status, True, (255, 203, 110))

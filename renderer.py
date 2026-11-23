@@ -393,8 +393,18 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
         body_color = ((78, 151, 118) if box.get("owner") == local_id
                       else (139, 102, 77))
         pygame.draw.circle(surface, body_color, (x, y), 22 * SCALE)
-        pygame.draw.circle(surface, (64, 65, 58), (x, y), 14 * SCALE)
-        pygame.draw.line(surface, (234, 132, 81), (x, y), (x + 21 * SCALE, y), 8)
+        # The barrel slews towards an enemy within detection distance,
+        # long before the shorter firing range is reached.
+        angle = box.get("angle", 0.0)
+        muzzle = (round(x + math.cos(angle) * 34 * SCALE),
+                  round(y + math.sin(angle) * 34 * SCALE))
+        pygame.draw.line(surface, (24, 35, 35), (x, y), muzzle, 15)
+        pygame.draw.line(surface, (173, 177, 158), (x, y), muzzle, 9)
+        pygame.draw.circle(surface, (42, 46, 41), (x, y), 15 * SCALE)
+        pygame.draw.circle(surface, body_color, (x, y), 11 * SCALE)
+        if box.get("tracking"):
+            pygame.draw.circle(surface, (244, 199, 95), (x, y),
+                               30 * SCALE, 2)
         pygame.draw.rect(surface, (44, 43, 39),
                          (x - 27, y + 35, 54, 8))
         pygame.draw.rect(surface, (223, 114, 79),
@@ -413,7 +423,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  BASE BUILDER v0.12", True, (235, 233, 208)),
+        "BOLO-LAN  /  SIGHTLINES v0.13", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  |  CLICK PLACE  |  B EXIT"

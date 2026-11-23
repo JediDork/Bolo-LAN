@@ -55,9 +55,12 @@ class GameServer:
                       for i, (x, y) in enumerate(BASE_SITES)]
         self.pillboxes = [{"id": i, "x": float(x), "y": float(y),
                            "hp": 100, "cooldown": 0.7, "owner": 0,
-                           "angle": 0.0, "tracking": False}
+                           "angle": 0.0, "tracking": False,
+                           "retaliation_target": 0, "retaliation_timer": 0.0}
                           for i, (x, y) in enumerate(PILLBOX_SITES)]
         self.wall_hp = initial_wall_hp()
+        self.wall_tile_index = {(wx // GRID_SIZE, wy // GRID_SIZE): index
+                                for index, (wx, wy, _, _) in enumerate(WALL_SECTIONS)}
         self.built_walls = {}  # (tile_x, tile_y) -> {hp, owner}
         self.built_bridges = set()
         self.bridge_owners = {}
@@ -225,6 +228,7 @@ class GameServer:
             player["reload"] = max(0.0, player["reload"] - dt)
             if command.get("fire") and player["reload"] <= 0 and player["ammo"] >= 1:
                 angle = player["turret"]
+                self.alert_pillboxes(player, angle)
                 self.bullets.append({"x": player["x"] + math.cos(angle) * 29,
                                      "y": player["y"] + math.sin(angle) * 29,
                                      "vx": math.cos(angle) * SHELL_SPEED,
@@ -324,13 +328,42 @@ class GameServer:
                    y0 + (y1 - y0) * fraction)
 
     def wall_obstruction_at(self, x, y, radius=3):
-        index = wall_at(x, y, radius, self.wall_hp)
-        if index is not None:
-            return "wall", index
+        # Indexed grid lookup keeps frequent bullet and pillbox raycasts
+        # inexpensive on the larger map (avoids scanning all wall sections).
         tx, ty = tile_at(x, y)
+        for ix in (tx - 1, tx, tx + 1):
+            for iy in (ty - 1, ty, ty + 1):
+                index = self.wall_tile_index.get((ix, iy))
+                if index is not None and self.wall_hp[index] > 0:
+                    left, top = ix * GRID_SIZE, iy * GRID_SIZE
+                    px = clamp(x, left, left + GRID_SIZE)
+                    py = clamp(y, top, top + GRID_SIZE)
+                    if (x - px) ** 2 + (y - py) ** 2 < radius ** 2:
+                        return "wall", index
         if (tx, ty) in self.built_walls:
             return "built", (tx, ty)
         return None
+
+    def alert_pillboxes(self, player, angle):
+        """An aimed shot provokes a tracking turret outside firing range.
+
+        A pillbox still cannot shoot through obstructing walls or heavy forest.
+        Merely being seen by a turret does not cause it to fire at long range.
+        """
+        for box in self.pillboxes:
+            if box["hp"] <= 0 or box["owner"] == player["id"]:
+                continue
+            dx, dy = box["x"] - player["x"], box["y"] - player["y"]
+            distance = math.hypot(dx, dy)
+            if not PILLBOX_RANGE <= distance < PILLBOX_DETECTION_RANGE:
+                continue
+            direction = math.atan2(dy, dx)
+            deviation = (direction - angle + math.pi) % (2 * math.pi) - math.pi
+            if abs(deviation) > 0.24:
+                continue
+            if self.can_see(box["x"], box["y"], player["x"], player["y"]):
+                box["retaliation_target"] = player["id"]
+                box["retaliation_timer"] = 6.0
 
     def shell_obstruction(self, bullet, x0, y0, x1, y1):
         # A shell can penetrate up to two *distinct* forest cells during its
@@ -418,7 +451,9 @@ class GameServer:
                 self.pillboxes.append({"id": len(self.pillboxes), "x": float(x),
                                        "y": float(y), "hp": 100, "cooldown": 0.8,
                                        "owner": player["id"], "angle": 0.0,
-                                       "tracking": False})
+                                       "tracking": False,
+                                       "retaliation_target": 0,
+                                       "retaliation_timer": 0.0})
         elif part == "bridge":
             if tile not in RIVER_TILES or tile in BRIDGE_TILES or tile in self.built_bridges:
                 return respond(False, "BRIDGES REQUIRE OPEN RIVER")
@@ -499,6 +534,8 @@ class GameServer:
             if box["hp"] <= 0:
                 continue
             box["cooldown"] = max(0.0, box["cooldown"] - dt)
+            box["retaliation_timer"] = max(
+                0.0, box.get("retaliation_timer", 0.0) - dt)
             visible = []
             for player in self.players.values():
                 if player["respawn"] > 0 or player["id"] == box["owner"]:
@@ -512,7 +549,11 @@ class GameServer:
             box["tracking"] = bool(visible)
             if not visible:
                 continue
-            distance, target = min(visible, key=lambda match: match[0])
+            # Once provoked, prefer the aggressor while they remain visible.
+            retaliation = box.get("retaliation_target") if box["retaliation_timer"] > 0 else 0
+            distance, target = min(
+                visible, key=lambda match:
+                (0 if match[1]["id"] == retaliation else 1, match[0]))
             desired = math.atan2(target["y"] - box["y"],
                                  target["x"] - box["x"])
             current = box.get("angle", 0.0)
@@ -523,7 +564,10 @@ class GameServer:
             # Rotate visibly throughout the outer detection area, but never
             # fire until the target is nearer AND the barrel is aligned.
             remaining = (desired - box["angle"] + math.pi) % (2 * math.pi) - math.pi
-            if (distance >= PILLBOX_RANGE or box["cooldown"] > 0
+            provoked = (box["retaliation_timer"] > 0 and
+                        target["id"] == box.get("retaliation_target"))
+            if ((distance >= PILLBOX_RANGE and not provoked)
+                    or box["cooldown"] > 0
                     or abs(remaining) > PILLBOX_AIM_TOLERANCE):
                 continue
             angle = box["angle"]

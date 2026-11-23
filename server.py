@@ -365,14 +365,16 @@ class GameServer:
         elif part == "repair":
             if original_wall is not None and self.wall_hp[original_wall] < WALL_MAX_HP:
                 self.wall_hp[original_wall] = min(WALL_MAX_HP, self.wall_hp[original_wall] + 1)
-            elif built_wall is not None and built_wall["hp"] < WALL_MAX_HP:
+            elif (built_wall is not None and built_wall["owner"] == player["id"]
+                  and built_wall["hp"] < WALL_MAX_HP):
                 built_wall["hp"] += 1
-            elif box is not None and box["hp"] < 100:
+            elif (box is not None and box["owner"] == player["id"]
+                  and box["hp"] < 100):
                 box["hp"] = min(100, box["hp"] + 25)
             else:
                 return respond(False, "NOTHING DAMAGED HERE")
         elif part == "remove":
-            if built_wall is not None:
+            if built_wall is not None and built_wall["owner"] == player["id"]:
                 del self.built_walls[tile]
             elif tile in self.built_bridges:
                 self.built_bridges.remove(tile)

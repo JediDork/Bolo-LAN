@@ -115,6 +115,11 @@ class RenderTests(unittest.TestCase):
                 self.assertEqual(len(sound) % 2, 0)
                 self.assertTrue(any(sound))
 
+    def test_reload_sound_is_a_valid_mono_buffer(self):
+        raw = _synth("reload")
+        self.assertEqual(len(raw), int(SAMPLE_RATE * 0.25) * 2)
+        self.assertTrue(any(raw))
+
     def test_engine_layers_are_complete_loop_buffers(self):
         for hz in ENGINE_RATES:
             with self.subTest(hz=hz):

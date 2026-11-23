@@ -17,13 +17,14 @@ WALL_COST = 2
 BRIDGE_COST = 5
 PILLBOX_COST = 8
 REPAIR_COST = 1
-BUILD_COSTS = {"wall": WALL_COST, "bridge": BRIDGE_COST,
+ROAD_COST = 1
+BUILD_COSTS = {"wall": WALL_COST, "road": ROAD_COST, "bridge": BRIDGE_COST,
                "pillbox": PILLBOX_COST, "repair": REPAIR_COST,
                "remove": 0}
-BUILD_LABELS = {"wall": "WALL", "bridge": "BRIDGE", "pillbox": "PILLBOX",
+BUILD_LABELS = {"wall": "WALL", "road": "ROAD", "bridge": "BRIDGE", "pillbox": "PILLBOX",
                 "repair": "REPAIR", "remove": "REMOVE"}
 BUILD_TOOLS = {"1": "wall", "2": "bridge", "3": "pillbox",
-               "4": "repair", "5": "remove"}
+               "4": "repair", "5": "remove", "6": "road"}
 
 
 def valid_tile(tx, ty):
@@ -41,7 +42,7 @@ def in_build_range(player, tx, ty):
 def blocked_build_terrain(tile, kind):
     if kind == "bridge":
         return tile not in RIVER_TILES or tile in BRIDGE_TILES
-    if kind in ("wall", "pillbox"):
+    if kind in ("wall", "pillbox", "road"):
         return tile in (FOREST_TILES | LAKE_TILES | RIVER_TILES)
     return False
 

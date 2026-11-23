@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.16 — Planet-style horizontal world wrapping
+
+- **East joins west:** the map now behaves like a cylinder/planet's longitude: drive right through the eastern map edge and emerge seamlessly at the western edge, and vice versa. There is no east/west boundary wall.
+- **North and south are still the poles:** the upper/lower edges remain solid, with no vertical wrap. The world is still 5200 × 3800 units and keeps its existing map layout and construction grid.
+- **Seamless camera:** the camera follows the shortest horizontal route, preventing a sudden jump across the entire map. The terrain renderer repeats the same cached map chunks at the wrap, including the shorter final chunk, so both sides stay visible together.
+- **Full multiplayer physics:** tanks, shells, impacts, collisions, pillbox detection/aiming, forest line of sight and base captures all use the nearest longitude rather than treating the joined edges as distant.
+- **Builder and aiming:** mouse targeting and grid building work over the join; construction range accounts for the wrapped distance. The minimap retains a single overview and splits its viewport indicator when the camera crosses the seam.
+- **Balanced visibility:** no changes to the fixed 1200 × 760 player camera or the existing top/bottom boundaries.
+
+**Testing:** try driving through both horizontal edges, firing across the seam at another tank, capturing a base near an edge, and building while the camera straddles the join. All LAN clients and the host must use the same version.
+
 ## Version 0.15 — Continuous roads and buildable tracks
 
 - **Road rendering fixed:** straight runs and intersections are now painted as continuous earth tracks, not overlapping circles. Outer shoulders and roadbed are drawn in separate passes, preventing the dark semicircle seams seen in the screenshot. Only true dead ends have rounded caps.

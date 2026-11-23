@@ -719,6 +719,52 @@ class SpawnAndReloadTests(unittest.TestCase):
             wrapped_distance(first["x"], first["y"],
                              second["x"], second["y"]), SPAWN_PLAYER_DISTANCE)
 
+    def test_respawn_uses_owned_flag_not_unclaimed_flag(self):
+        player = self.server.players[1]
+        owned = self.server.bases[0]
+        owned["owner"] = player["id"]
+        # Other neutral flags still exist; respawn must not take one.
+        self.assertTrue(any(base["owner"] == 0 for base in self.server.bases))
+        player.update(x=2300.0, y=2300.0, respawn=0.0)
+        self.server.spawn(player)
+        self.assertEqual(player["spawn_kind"], "owned_flag")
+        self.assertEqual((player["x"], player["y"]),
+                         (owned["x"], owned["y"]))
+
+    def test_all_flags_claimed_but_player_owns_one_respawns_at_it(self):
+        player = self.server.players[1]
+        for base in self.server.bases:
+            base["owner"] = 2
+        owned = self.server.bases[2]
+        owned["owner"] = player["id"]
+        self.server.spawn(player)
+        self.assertEqual(player["spawn_kind"], "owned_flag")
+        self.assertEqual((player["x"], player["y"]),
+                         (owned["x"], owned["y"]))
+
+    def test_player_with_no_flags_falls_back_to_unclaimed_flag(self):
+        player = self.server.players[1]
+        self.server.bases[0]["owner"] = 2
+        self.server.spawn(player)
+        self.assertEqual(player["spawn_kind"], "flag")
+        self.assertIn((player["x"], player["y"]),
+                      {(b["x"], b["y"]) for b in self.server.bases
+                       if b["owner"] == 0})
+
+    def test_blocked_owned_flag_never_sends_player_to_neutral_flag(self):
+        player = self.server.players[1]
+        base = self.server.bases[0]
+        base["owner"] = player["id"]
+        self.server.handle(b'{"type":"join","name":"Second"}', self.second_addr)
+        opponent = self.server.players[2]
+        opponent.update(x=base["x"], y=base["y"], respawn=0.0)
+        player.update(x=2300.0, y=2300.0, respawn=0.0)
+        self.server.spawn(player)
+        self.assertEqual(player["spawn_kind"], "owned_flag")
+        self.assertLessEqual(
+            wrapped_distance(player["x"], player["y"],
+                             base["x"], base["y"]), 55)
+
     def test_all_flags_owned_uses_safe_random_ground(self):
         for base in self.server.bases:
             base["owner"] = 1

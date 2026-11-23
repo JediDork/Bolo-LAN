@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.4 — Combat and fair fullscreen
+
+- **True fullscreen, fixed gameplay viewport:** every machine sees exactly 1200x760 logical pixels; higher resolutions scale the same picture rather than revealing more terrain. Aspect-ratio differences are black-letterboxed. Mouse aiming compensates for scaling and letterboxing.
+- **Clear driving direction:** a bright yellow chevron marks the tank hull's front even when the turret is pointing backwards.
+- **Physical turret traverse:** the server limits rotation to 2 radians/second (~115 degrees/second) instead of snapping instantly to the cursor. Projectiles always fire in the actual turret direction.
+- **Unobstructed north edge:** the status HUD moved to a semi-transparent bottom panel.
+- **Destructible wall segments:** each wall is divided into sections that take **four shell hits** each. Every hit increases visible cracks and chips; the fourth destroys that section, generates debris, and creates a navigable gap. Damage and collision are authoritative on the host and synchronized to clients.
+- Automated tests cover wall durability, turret limits, fullscreen mapping and existing combat.
+
+Run `Start-BoloLAN.ps1` again to pull the update, or download the latest successful Windows distribution from GitHub Actions. **Update every player and host:** older protocol versions lack wall state.
+
 ## Version 0.3 — One-click LAN hosting
 
 Every game client can host. Run `python launcher.py` (or the packaged `BoloLAN.exe`): it checks for an existing LAN server, joins if found, and otherwise starts a server in the same process before joining locally. The first player acts as host, so closing that game ends the hosted session. Players on other computers can join while the host remains running. If several machines start at exactly the same time, a rare split-lobby race is possible; try restarting the later instances if they do not see each other. A dedicated `server.py` / `BoloLAN-Server.exe` is still available.
@@ -59,7 +70,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 
 ### Architecture
 
-`shared.py`: constants and deterministic terrain. `server.py`: fixed timestep authoritative simulation and discovery. `client.py`: rendering and input. All combat outcomes are computed by the server. The client sends only movement/aim/fire intentions; server validates rate and handles hits.
+`shared.py`: constants and deterministic destructible wall sections. `display.py`: fixed 1200x760 logical viewport mapping. `server.py`: fixed timestep authoritative simulation and discovery. `client.py`: rendering and input. All combat outcomes are computed by the server. The client sends only movement/aim/fire intentions; server validates rate and handles hits.
 
 Networking currently uses compact JSON snapshots over UDP for simplicity. Later milestones will add interpolation/prediction, more robust protocols, server browser, teams, and gameplay systems.
 

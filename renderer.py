@@ -60,7 +60,10 @@ def draw_road_network(surface, road_tiles, to_screen, visible_tiles=None):
                              pygame.Rect(x - half, y - half, thick, thick))
             # Orthogonal edge joins form one uninterrupted road surface.
             for nx, ny in ((tx + 1, ty), (tx, ty + 1)):
-                if (nx, ny) in road_tiles:
+                # x=GRID_W is the longitude copy of x=0. Draw in virtual
+                # coordinates, not a line across the entire world.
+                canonical = (nx % GRID_W, ny)
+                if canonical in road_tiles:
                     ex, ey = to_screen((nx + 0.5) * GRID_SIZE,
                                        (ny + 0.5) * GRID_SIZE)
                     if nx != tx:
@@ -71,7 +74,10 @@ def draw_road_network(surface, road_tiles, to_screen, visible_tiles=None):
                                          (x - half, y, thick, ey - y))
         # Only exposed terminal cells receive a round end.
         for tx, ty in visible_tiles:
-            if sum((n in road_tiles) for n in neighbors((tx, ty))) <= 1:
+            adjacent = (((tx - 1) % GRID_W, ty),
+                        ((tx + 1) % GRID_W, ty),
+                        (tx, ty - 1), (tx, ty + 1))
+            if sum((n in road_tiles) for n in adjacent) <= 1:
                 x, y = to_screen((tx + 0.5) * GRID_SIZE,
                                  (ty + 0.5) * GRID_SIZE)
                 pygame.draw.circle(surface, colour, (x, y), thick // 2)

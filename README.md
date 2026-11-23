@@ -2,6 +2,16 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.11 — Visible-range defences and testing god mode
+
+- Pillbox engagement reduced from **850 to 355 world units**. Since all players see exactly **1200 × 760 world units** at once, this is slightly inside the vertical half-screen of 380 units. Players approaching from above or below should see a pillbox shortly before it begins firing. (Visibility near the world boundary or behind the HUD will still vary.)
+- **G toggles per-player GOD MODE** during testing. The authoritative server preserves tank armour at 100% while enabled, so hits still create effects but no damage or deaths. Press G again to return to normal. Movement, weapon ammunition, collisions and captures behave normally.
+- A gold ring around an invulnerable tank and a prominent HUD label show when god mode is enabled. All players see who is invulnerable.
+- This is a developer/test convenience and is **available to all players** in the current LAN prototype. It should be disabled or made host-controlled before competitive play.
+- God mode is off by default and resets when a player reconnects.
+
+Update host and clients together so the new test command and player status are supported.
+
 ## Version 0.10 — Narrow rivers, bridges, clean forests and transparent flags
 
 - **One-grid-cell river:** the meandering river now occupies exactly one 50-unit tile in each row, rather than a broad multi-cell watercourse. Each consecutive section deviates at most one tile horizontally.
@@ -147,6 +157,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 - **Mouse**: aim turret
 - **Left mouse** or **Space**: fire
 - **M**: mute/unmute sounds
+- **G**: toggle testing god mode (invulnerability)
 - **Esc**: quit
 
 ### Architecture

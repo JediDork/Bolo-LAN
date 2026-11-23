@@ -185,7 +185,7 @@ def main(argv=None):
     view = viewport(*display.get_size(), WIDTH, HEIGHT)
     # Render *new* detail at 2x, then filter to the monitor without zooming out.
     screen = pygame.Surface((RENDER_W, RENDER_H)).convert()
-    pygame.display.set_caption("Bolo-LAN | Base Builder v0.12")
+    pygame.display.set_caption("Bolo-LAN | Road Builder v0.15")
     fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
              "heading": pygame.font.SysFont("consolas", 46, bold=True)}
     audio = SoundBank()
@@ -194,7 +194,8 @@ def main(argv=None):
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
              "walls": initial_wall_hp(),
-             "bases": [], "pillboxes": [], "built_walls": [], "built_bridges": []}
+             "bases": [], "pillboxes": [], "built_walls": [], "built_bridges": [],
+             "built_roads": []}
     effects = Effects()
     visual_players = {}
     last_event_id = 0
@@ -347,7 +348,8 @@ def main(argv=None):
             "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST",
             state.get("bases", []), state.get("pillboxes", []),
             state.get("built_walls", []), state.get("built_bridges", []),
-            build_mode, build_part, hovered, build_message)
+            build_mode, build_part, hovered, build_message,
+            state.get("built_roads", []))
         # Keep the SAME world view on all displays, with filtered scaling.
         display.fill((0, 0, 0))
         left, top, draw_width, draw_height = view

@@ -184,7 +184,7 @@ def main(argv=None):
     view = viewport(*display.get_size(), WIDTH, HEIGHT)
     # Render *new* detail at 2x, then filter to the monitor without zooming out.
     screen = pygame.Surface((RENDER_W, RENDER_H)).convert()
-    pygame.display.set_caption("Bolo-LAN | Field Test v0.5")
+    pygame.display.set_caption("Bolo-LAN | Field Test v0.11")
     fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
              "heading": pygame.font.SysFont("consolas", 46, bold=True)}
     audio = SoundBank()
@@ -211,6 +211,9 @@ def main(argv=None):
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
                 audio.toggle_mute()
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not event.repeat:
+                if local_id is not None:
+                    send(sock, addr, {"type": "god_mode"})
         for _ in range(96):
             try:
                 data, incoming = sock.recvfrom(65535)
@@ -269,7 +272,7 @@ def main(argv=None):
             for key in ("a", "t"):
                 diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
                 visual[key] = (visual[key] + diff * blend) % math.tau
-            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo"):
+            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo", "god_mode"):
                 visual[key] = authoritative[key]
         for pid in list(visual_players):
             if pid not in present_ids:

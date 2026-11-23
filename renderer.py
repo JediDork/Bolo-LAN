@@ -9,7 +9,8 @@ import pygame
 
 from effects import DETAILS
 from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
-from terrain import WATER, ROADS, FORESTS, terrain_at
+from terrain import (FOREST_TILES, LAKE_TILES, RIVER_TILES, ROAD_TILES,
+                     GRID_W, GRID_H, neighbors, terrain_at)
 
 WORLD_VIEW_W, WORLD_VIEW_H = 1200, 760
 SCALE = 2
@@ -25,77 +26,110 @@ def dot(surface, color, x, y, radius):
     pygame.draw.circle(surface, color, (round(x), round(y)), max(1, round(radius)))
 
 
-def ground(surface, camera, wall_hp):
-    surface.fill(BG)
-    sx, sy = camera
-    for wx in range(int(sx // GRID_SIZE) * GRID_SIZE, int(sx + WORLD_VIEW_W) + GRID_SIZE + 1, GRID_SIZE):
-        x, _ = point(wx, 0, camera)
-        pygame.draw.line(surface, (51, 91, 67), (x, 0), (x, RENDER_H), 1)
-    for wy in range(int(sy // GRID_SIZE) * GRID_SIZE, int(sy + WORLD_VIEW_H) + GRID_SIZE + 1, GRID_SIZE):
-        _, y = point(0, wy, camera)
-        pygame.draw.line(surface, (51, 91, 67), (0, y), (RENDER_W, y), 1)
+_TERRAIN_CACHE = None
 
-    # Terrain is deterministic and shared with the authoritative simulation.
-    for wx, wy, ww, wh in ROADS:
-        rx, ry = point(wx, wy, camera)
-        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
-        if rect.colliderect(surface.get_rect()):
-            pygame.draw.rect(surface, (115, 105, 82), rect)
-            pygame.draw.rect(surface, (136, 125, 95), rect.inflate(-12, -12))
-            pygame.draw.rect(surface, (92, 85, 69), rect, 3)
-    for wx, wy, ww, wh in FORESTS:
-        rx, ry = point(wx, wy, camera)
-        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
-        if rect.colliderect(surface.get_rect()):
-            pygame.draw.rect(surface, (31, 72, 47), rect, border_radius=30)
-            pygame.draw.rect(surface, (43, 86, 51), rect.inflate(-18, -18), border_radius=22)
-            # Consistent tree crowns, never random per frame.
-            for xi in range(GRID_SIZE // 2, int(ww), GRID_SIZE):
-                for yi in range(GRID_SIZE // 2, int(wh), GRID_SIZE):
-                    tx, ty = point(wx + xi, wy + yi, camera)
-                    dot(surface, (19, 57, 36), tx + 6, ty + 7, 24)
-                    dot(surface, (38, 106, 59), tx, ty, 20)
-                    dot(surface, (58, 125, 66), tx - 5, ty - 6, 7)
-    for wx, wy, ww, wh in WATER:
-        rx, ry = point(wx, wy, camera)
-        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
-        if rect.colliderect(surface.get_rect()):
-            pygame.draw.rect(surface, (30, 85, 126), rect, border_radius=14)
-            pygame.draw.rect(surface, (65, 144, 168), rect, 5, border_radius=14)
-            for offset in range(GRID_SIZE // 2, int(ww), GRID_SIZE * 2):
-                x, y = point(wx + offset, wy + GRID_SIZE // 2, camera)
-                pygame.draw.arc(surface, (90, 176, 192),
-                                pygame.Rect(x, y, 55, 18), 0.2, 2.6, 3)
 
-    for wx, wy, size, kind in DETAILS:
+def make_terrain_cache():
+    """Paint the whole deterministic map once; scrolling then costs one blit.
+
+    Irregular foliage and water are formed from overlapping rounded cells,
+    not visible axis-aligned area rectangles. The tile mask remains canonical
+    for terrain movement and the future bridge builder.
+    """
+    result = pygame.Surface((WORLD_W * SCALE, WORLD_H * SCALE))
+    result.fill(BG)
+    size = GRID_SIZE * SCALE
+
+    # Stable ground variation at grid-cell granularity.
+    for ty in range(GRID_H):
+        for tx in range(GRID_W):
+            x, y = tx * size, ty * size
+            if (tx * 19 + ty * 31) % 9 < 3:
+                pygame.draw.rect(result, (47, 85, 63), (x, y, size, size))
+
+    # Forests have soft, lobed perimeters defined by many overlapping crowns.
+    # The game logic uses tile occupancy, not the visible foliage silhouette.
+    for tx, ty in sorted(FOREST_TILES):
+        x, y = (tx * GRID_SIZE + GRID_SIZE / 2) * SCALE, (ty * GRID_SIZE + GRID_SIZE / 2) * SCALE
+        colour = (39, 88, 54) if (tx + ty) % 3 else (43, 94, 57)
+        pygame.draw.circle(result, (28, 69, 42), (round(x), round(y)), 37 * SCALE)
+        pygame.draw.circle(result, colour, (round(x), round(y)), 32 * SCALE)
+        if (tx * 7 + ty * 11) % 4:
+            pygame.draw.circle(result, (24, 63, 39), (round(x + 9 * SCALE), round(y + 9 * SCALE)), 18 * SCALE)
+            pygame.draw.circle(result, (58, 119, 68), (round(x - 5 * SCALE), round(y - 7 * SCALE)), 14 * SCALE)
+            pygame.draw.circle(result, (82, 137, 80), (round(x - 10 * SCALE), round(y - 12 * SCALE)), 5 * SCALE)
+
+    # Routes form continuous tracks between bases, bending to avoid lakes and
+    # wall tiles. Rounded shoulders help intersections look less block-like.
+    for tx, ty in sorted(ROAD_TILES):
+        x, y = (tx * GRID_SIZE + GRID_SIZE / 2) * SCALE, (ty * GRID_SIZE + GRID_SIZE / 2) * SCALE
+        pygame.draw.circle(result, (95, 83, 66), (round(x), round(y)), 27 * SCALE)
+        pygame.draw.circle(result, (139, 122, 94), (round(x), round(y)), 22 * SCALE)
+        for nx, ny in neighbors((tx, ty)):
+            if (nx, ny) in ROAD_TILES:
+                mid_x = round((x + (nx * GRID_SIZE + GRID_SIZE / 2) * SCALE) / 2)
+                mid_y = round((y + (ny * GRID_SIZE + GRID_SIZE / 2) * SCALE) / 2)
+                dx = abs(nx - tx)
+                # Road joins use actual rectangles, but their outer shoulders
+                # are circular so bends read like graded tracks, not squares.
+                rect = pygame.Rect(round(mid_x - (GRID_SIZE if dx else 22) * SCALE),
+                                   round(mid_y - (22 if dx else GRID_SIZE) * SCALE),
+                                   (GRID_SIZE * 2 if dx else 44) * SCALE,
+                                   (44 if dx else GRID_SIZE * 2) * SCALE)
+                pygame.draw.rect(result, (139, 122, 94), rect)
+
+    # Draw the river over the roads: at a crossing the road ends at each bank
+    # and the player must ford through slow water until bridge building exists.
+    for mask, deep, rim, radius in (
+        (RIVER_TILES, (38, 103, 137), (76, 153, 171), 37),
+        (LAKE_TILES, (29, 85, 127), (70, 149, 175), 39),
+    ):
+        for tx, ty in sorted(mask):
+            px = (tx * GRID_SIZE + GRID_SIZE / 2) * SCALE
+            py = (ty * GRID_SIZE + GRID_SIZE / 2) * SCALE
+            center = (round(px), round(py))
+            pygame.draw.circle(result, (75, 106, 95), center, (radius + 4) * SCALE)
+            pygame.draw.circle(result, rim, center, radius * SCALE)
+            pygame.draw.circle(result, deep, center, (radius - 5) * SCALE)
+            if (tx * 13 + ty * 3) % 4 == 0:
+                pygame.draw.arc(result, (106, 180, 188),
+                                pygame.Rect(round(px - 19 * SCALE), round(py - 6 * SCALE),
+                                            38 * SCALE, 16 * SCALE), 0.3, 2.7, 2)
+
+    # Scatter only on uncovered grass. Tree foliage and water keep their own
+    # detail, preventing dots on the banks that look like grid artefacts.
+    for wx, wy, radius, kind in DETAILS:
         if terrain_at(wx, wy) != "grass":
             continue
-        px, py = point(wx, wy, camera)
-        if not (-22 <= px <= RENDER_W + 22 and -22 <= py <= RENDER_H + 22):
-            continue
-        size *= SCALE
+        px, py = round(wx * SCALE), round(wy * SCALE)
+        radius *= SCALE
         if kind == 0:
-            pygame.draw.aaline(surface, (70, 111, 72),
-                               (px - size, py + size), (px, py - size))
-            pygame.draw.aaline(surface, (80, 119, 78),
-                               (px, py + size), (px + size, py - size))
+            pygame.draw.aaline(result, (70, 111, 72),
+                               (px - radius, py + radius), (px, py - radius))
+            pygame.draw.aaline(result, (80, 119, 78),
+                               (px, py + radius), (px + radius, py - radius))
         elif kind == 1:
-            dot(surface, (88, 112, 86), px, py, size / 2)
+            dot(result, (91, 110, 85), px, py, radius / 2)
         else:
-            dot(surface, (40, 94, 58), px + 4, py + 4, size)
-            dot(surface, (57, 117, 67), px, py, size)
+            dot(result, (43, 98, 60), px, py, radius)
 
-    # Construction grid overlays all terrain, not just grass, so tile
-    # boundaries stay visible when planning roads, bases and defences.
-    for wx in range(int(sx // GRID_SIZE) * GRID_SIZE,
-                    int(sx + WORLD_VIEW_W) + GRID_SIZE + 1, GRID_SIZE):
-        x, _ = point(wx, 0, camera)
-        pygame.draw.line(surface, (92, 119, 103), (x, 0), (x, RENDER_H), 1)
-    for wy in range(int(sy // GRID_SIZE) * GRID_SIZE,
-                    int(sy + WORLD_VIEW_H) + GRID_SIZE + 1, GRID_SIZE):
-        _, y = point(0, wy, camera)
-        pygame.draw.line(surface, (92, 119, 103), (0, y), (RENDER_W, y), 1)
+    # Keep the construction grid available but subtle; natural silhouettes
+    # should remain visible instead of being chopped into strong squares.
+    grid_colour = (57, 91, 75)
+    for x in range(0, WORLD_W * SCALE + 1, size):
+        pygame.draw.line(result, grid_colour, (x, 0), (x, WORLD_H * SCALE), 1)
+    for y in range(0, WORLD_H * SCALE + 1, size):
+        pygame.draw.line(result, grid_colour, (0, y), (WORLD_W * SCALE, y), 1)
+    return result
 
+
+def ground(surface, camera, wall_hp):
+    global _TERRAIN_CACHE
+    if _TERRAIN_CACHE is None:
+        _TERRAIN_CACHE = make_terrain_cache()
+    surface.blit(_TERRAIN_CACHE,
+                 (-round(camera[0] * SCALE), -round(camera[1] * SCALE)))
+    # Wall damage remains dynamic and never gets baked into terrain.
     tones = ((121, 127, 112), (109, 110, 100),
              (91, 88, 82), (72, 66, 62))
     for index, (wx, wy, ww, wh) in enumerate(WALL_SECTIONS):
@@ -127,8 +161,8 @@ def ground(surface, camera, wall_hp):
                                 pygame.Rect(cx0 - 6 * damage, cy0 - 6 * damage,
                                             12 * damage, 12 * damage))
     x, y = point(0, 0, camera)
-    bounds = pygame.Rect(x, y, WORLD_W * SCALE, WORLD_H * SCALE)
-    pygame.draw.rect(surface, (199, 208, 168), bounds, 7)
+    pygame.draw.rect(surface, (199, 208, 168),
+                     pygame.Rect(x, y, WORLD_W * SCALE, WORLD_H * SCALE), 7)
 
 
 def tank(surface, player, camera, font, local_id):
@@ -261,7 +295,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  GRID TEST v0.8", True, (235, 233, 208)),
+        "BOLO-LAN  /  RIVER TEST v0.9", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | CLICK FIRE | M MUTE",

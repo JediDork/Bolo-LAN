@@ -470,6 +470,43 @@ class GameServerTests(unittest.TestCase):
         self.assertTrue(self.server.build(p, "repair", *chosen))
         self.assertEqual(box["hp"], 75)
 
+    def test_road_building_driving_and_removal(self):
+        player = self.server.players[1]
+        chosen = None
+        for tx in range(5, 47):
+            for ty in range(5, 32):
+                x, y = tile_to_world(tx, ty)
+                player.update(x=float(x + 110), y=float(y), speed=0,
+                              material=float(MAX_MATERIAL), build_timer=0)
+                if self.server.build(player, "road", tx, ty):
+                    chosen = (tx, ty)
+                    break
+            if chosen is not None:
+                break
+        self.assertIsNotNone(chosen)
+        self.assertEqual(self.server.built_roads[chosen], player["id"])
+        self.assertEqual(player["material"], MAX_MATERIAL - BUILD_COSTS["road"])
+        x, y = tile_to_world(*chosen)
+        player.update(x=float(x), y=float(y), speed=0)
+        self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}',
+                           self.address1)
+        self.server.step(1 / 30)
+        self.assertGreater(player["speed"], 0)
+        self.assertIn(list(chosen), [list(t) for t in sorted(self.server.built_roads)])
+        player["build_timer"] = 0
+        self.assertTrue(self.server.build(player, "remove", *chosen))
+        self.assertNotIn(chosen, self.server.built_roads)
+
+    def test_roads_reject_water_and_existing_roads(self):
+        player = self.server.players[1]
+        player["material"] = MAX_MATERIAL
+        for tile in (next(iter(LAKE_TILES)),
+                     next(iter(RIVER_TILES - BRIDGE_TILES)),
+                     next(iter(ROAD_TILES))):
+            x, y = tile_to_world(*tile)
+            player.update(x=float(x), y=float(y), build_timer=0)
+            self.assertFalse(self.server.build(player, "road", *tile))
+
     def test_builder_refuses_building_on_tank(self):
         p = self.server.players[1]
         tx, ty = world_to_tile(p["x"], p["y"])

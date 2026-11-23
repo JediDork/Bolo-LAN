@@ -4,12 +4,17 @@ import random
 
 import pygame
 
-from shared import WORLD_H, WORLD_W
+from shared import GRID_SIZE, WORLD_H, WORLD_W, tile_to_world
 
+# Decorations occupy deterministic tile centres, never arbitrary offsets.
+# They remain visual-only and do not affect server-side collision.
 _rng = random.Random(7319)
-DETAILS = [(_rng.randrange(WORLD_W), _rng.randrange(WORLD_H),
-            _rng.randrange(2, 7), _rng.randrange(3))
-           for _ in range(1750)]
+DETAILS = []
+for ty in range(WORLD_H // GRID_SIZE):
+    for tx in range(WORLD_W // GRID_SIZE):
+        if _rng.random() < 0.60:
+            x, y = tile_to_world(tx, ty)
+            DETAILS.append((x, y, _rng.randrange(2, 7), _rng.randrange(3)))
 
 
 def draw_details(surface, camera, width, height):

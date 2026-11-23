@@ -10,7 +10,8 @@ import time
 
 import pygame
 
-from shared import PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W
+from shared import (PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W,
+                    wrap_x, shortest_dx, wrapped_distance, nearest_x)
 from effects import Effects, draw_details, draw_minimap
 from display import viewport, to_logical
 from renderer import draw_frame, RENDER_W, RENDER_H
@@ -229,7 +230,7 @@ def main(argv=None):
                     build_part = chosen
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and build_mode and local_id is not None:
                 mx, my = to_logical(event.pos, view, WIDTH, HEIGHT)
-                tx = int((mx + camera[0]) // 50)
+                tx = int(wrap_x(mx + camera[0]) // 50)
                 ty = int((my + camera[1]) // 50)
                 send(sock, addr, {"type": "build", "part": build_part, "tx": tx, "ty": ty})
         for _ in range(96):
@@ -283,13 +284,14 @@ def main(argv=None):
                 visual_players[pid] = dict(authoritative)
                 continue
             visual = visual_players[pid]
-            delta = math.hypot(authoritative["x"] - visual["x"],
-                               authoritative["y"] - visual["y"])
+            delta = wrapped_distance(visual["x"], visual["y"],
+                                     authoritative["x"], authoritative["y"])
             if delta > 180:
                 visual.update(authoritative)
                 continue
-            for key in ("x", "y"):
-                visual[key] += (authoritative[key] - visual[key]) * blend
+            visual["x"] = wrap_x(visual["x"] +
+                                 shortest_dx(visual["x"], authoritative["x"]) * blend)
+            visual["y"] += (authoritative["y"] - visual["y"]) * blend
             for key in ("a", "t"):
                 diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
                 visual[key] = (visual[key] + diff * blend) % math.tau
@@ -300,15 +302,18 @@ def main(argv=None):
                 del visual_players[pid]
         player = visual_players.get(local_id)
         if player:
-            camera[0] += (player["x"] - WIDTH / 2 - camera[0]) * 0.15
+            target_x = wrap_x(player["x"] - WIDTH / 2)
+            camera[0] = wrap_x(camera[0] + shortest_dx(camera[0], target_x) * 0.15)
             camera[1] += (player["y"] - HEIGHT / 2 - camera[1]) * 0.15
-        camera[0] = max(0, min(WORLD_W - WIDTH, camera[0]))
+        camera[0] = wrap_x(camera[0])
         camera[1] = max(0, min(WORLD_H - HEIGHT, camera[1]))
         keys = pygame.key.get_pressed()
         movement = int(keys[pygame.K_w] or keys[pygame.K_UP]) - int(keys[pygame.K_s] or keys[pygame.K_DOWN])
         turn = int(keys[pygame.K_d] or keys[pygame.K_RIGHT]) - int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         mx, my = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
-        aim = math.atan2(my + camera[1] - player["y"], mx + camera[0] - player["x"]) if player else 0.0
+        aim = (math.atan2(my + camera[1] - player["y"],
+                          shortest_dx(player["x"], wrap_x(mx + camera[0])))
+               if player else 0.0)
         firing = bool((not build_mode and pygame.mouse.get_pressed()[0]) or keys[pygame.K_SPACE])
         # Continuous local engine responds to authoritative velocity and input.
         # Mute also affects this layer without changing the multiplayer state.
@@ -340,7 +345,8 @@ def main(argv=None):
         hovered = None
         if build_mode:
             hx, hy = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
-            hovered = (int((hx + camera[0]) // 50), int((hy + camera[1]) // 50))
+            hovered = (int(wrap_x(hx + camera[0]) // 50),
+                       int((hy + camera[1]) // 50))
         draw_frame(
             screen, camera, state.get("walls", []), state["bullets"],
             list(visual_players.values()), local_id, effects, fonts,

@@ -20,7 +20,7 @@ TURN_ACCELERATION = 7.5
 TURN_DRAG = 10.0
 CAPTURE_TIME = 2.5
 BASE_RADIUS = 54
-PILLBOX_RANGE = 850
+PILLBOX_RANGE = 355  # Fits just inside half the 760-unit fixed camera height
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
@@ -100,7 +100,8 @@ class GameServer:
                 self.next_id += 1
                 player = {"id": player_id, "name": str(message.get("name", "Tank"))[:16],
                           "color": COLORS[(player_id - 1) % len(COLORS)],
-                          "input": {}, "last": time.monotonic(), "score": 0}
+                          "input": {}, "last": time.monotonic(), "score": 0,
+                          "god_mode": False}
                 self.spawn(player)
                 self.players[player_id] = player
                 self.addresses[address] = player_id
@@ -116,6 +117,15 @@ class GameServer:
         player["last"] = time.monotonic()
         if kind == "leave":
             self.remove(player_id)
+        elif kind == "god_mode":
+            # Test-only server-authoritative invulnerability, opt-in per player.
+            # No arbitrary client-side health or position modification.
+            player["god_mode"] = not player["god_mode"]
+            if player["god_mode"]:
+                player["hp"] = 100
+                player["respawn"] = 0.0
+            self.transmit(address, {"type": "god_mode",
+                                    "enabled": player["god_mode"]})
         elif kind == "input":
             # Only input intent is accepted. Never trust client positions/hit reports.
             def axis(key):
@@ -252,7 +262,8 @@ class GameServer:
                 dist2 = (old_x + t * dx - player["x"]) ** 2 + (old_y + t * dy - player["y"]) ** 2
                 if dist2 <= (TANK_RADIUS + 4) ** 2:
                     self.event("hit", player["x"], player["y"])
-                    player["hp"] -= bullet.get("damage", 34)
+                    if not player["god_mode"]:
+                        player["hp"] -= bullet.get("damage", 34)
                     if player["hp"] <= 0:
                         player["hp"] = 0
                         player["respawn"] = 2.3
@@ -328,7 +339,8 @@ class GameServer:
                     "y": round(p["y"], 1), "a": round(p["angle"], 3),
                     "t": round(p["turret"], 3), "hp": p["hp"], "score": p["score"],
                     "dead": p["respawn"] > 0, "color": p["color"],
-                    "speed": round(p["speed"], 1), "ammo": int(p["ammo"])}
+                    "speed": round(p["speed"], 1), "ammo": int(p["ammo"]),
+                    "god_mode": p["god_mode"]}
                    for p in self.players.values()]
         bullets = [{"x": round(b["x"], 1), "y": round(b["y"], 1)}
                    for b in self.bullets]

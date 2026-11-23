@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.2 — LAN combat polish
+
+- Smooth interpolation of networked tank positions and independently aimed turrets.
+- Procedural terrain detail, improved treads and a live minimap.
+- Server-generated synchronized muzzle flashes, impacts, hits and destruction effects.
+- Particle-based explosions and moving-tank dust.
+- Headless multiplayer smoke tests run during each Windows executable build.
+- Original 0.1 combat and LAN discovery remain intact.
+
+**Important:** both host and clients must use the latest build together for consistent combat effects. This remains a prototype; bases, pillboxes, builders and resources are planned next.
+
 ## Milestone 1
 
 - Dedicated authoritative UDP game server (30 ticks/s).

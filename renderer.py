@@ -9,6 +9,7 @@ import pygame
 
 from effects import DETAILS
 from shared import WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
+from terrain import WATER, ROADS, FORESTS
 
 WORLD_VIEW_W, WORLD_VIEW_H = 1200, 760
 SCALE = 2
@@ -33,6 +34,38 @@ def ground(surface, camera, wall_hp):
     for wy in range(int(sy // 100) * 100, int(sy + WORLD_VIEW_H) + 101, 100):
         _, y = point(0, wy, camera)
         pygame.draw.line(surface, (51, 91, 67), (0, y), (RENDER_W, y), 1)
+
+    # Terrain is deterministic and shared with the authoritative simulation.
+    for wx, wy, ww, wh in ROADS:
+        rx, ry = point(wx, wy, camera)
+        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
+        if rect.colliderect(surface.get_rect()):
+            pygame.draw.rect(surface, (115, 105, 82), rect)
+            pygame.draw.rect(surface, (136, 125, 95), rect.inflate(-12, -12))
+            pygame.draw.rect(surface, (92, 85, 69), rect, 3)
+    for wx, wy, ww, wh in FORESTS:
+        rx, ry = point(wx, wy, camera)
+        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
+        if rect.colliderect(surface.get_rect()):
+            pygame.draw.rect(surface, (31, 72, 47), rect, border_radius=30)
+            pygame.draw.rect(surface, (43, 86, 51), rect.inflate(-18, -18), border_radius=22)
+            # Consistent tree crowns, never random per frame.
+            for xi in range(28, int(ww), 48):
+                for yi in range(28, int(wh), 48):
+                    tx, ty = point(wx + xi, wy + yi, camera)
+                    dot(surface, (19, 57, 36), tx + 6, ty + 7, 24)
+                    dot(surface, (38, 106, 59), tx, ty, 20)
+                    dot(surface, (58, 125, 66), tx - 5, ty - 6, 7)
+    for wx, wy, ww, wh in WATER:
+        rx, ry = point(wx, wy, camera)
+        rect = pygame.Rect(rx, ry, round(ww * SCALE), round(wh * SCALE))
+        if rect.colliderect(surface.get_rect()):
+            pygame.draw.rect(surface, (30, 85, 126), rect, border_radius=14)
+            pygame.draw.rect(surface, (65, 144, 168), rect, 5, border_radius=14)
+            for offset in range(25, int(ww), 80):
+                x, y = point(wx + offset, wy + 25 + (offset % 45), camera)
+                pygame.draw.arc(surface, (90, 176, 192),
+                                pygame.Rect(x, y, 55, 18), 0.2, 2.6, 3)
 
     for wx, wy, size, kind in DETAILS:
         px, py = point(wx, wy, camera)
@@ -142,7 +175,7 @@ def particles(surface, camera, effects):
                            max(1, round(SCALE * 3 * (1 - ratio))))
 
 
-def minimap(surface, players, local_id, camera):
+def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
     radar_scale = 0.10 * SCALE
     ww, hh = round(WORLD_W * radar_scale), round(WORLD_H * radar_scale)
     left, top = RENDER_W - ww - 36, 144
@@ -154,6 +187,13 @@ def minimap(surface, players, local_id, camera):
                        round(WORLD_VIEW_W * radar_scale),
                        round(WORLD_VIEW_H * radar_scale))
     pygame.draw.rect(surface, (92, 117, 106), rect, 2)
+    for b in bases:
+        dot(surface, (208, 187, 95) if b["owner"] == 0 else (109, 232, 167),
+            left + b["x"] * radar_scale, top + b["y"] * radar_scale, 7)
+    for box in pillboxes:
+        if box["hp"] > 0:
+            dot(surface, (223, 107, 94),
+                left + box["x"] * radar_scale, top + box["y"] * radar_scale, 5)
     for p in players:
         if not p.get("dead"):
             color = (245, 237, 170) if p["id"] == local_id else tuple(p["color"])
@@ -162,8 +202,34 @@ def minimap(surface, players, local_id, camera):
 
 
 def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
-               fonts, host, port, connected, status):
+               fonts, host, port, connected, status, bases=(), pillboxes=()):
     ground(surface, camera, wall_hp)
+    for base in bases:
+        x, y = point(base["x"], base["y"], camera)
+        owned = base["owner"] == local_id and local_id is not None
+        color = (80, 195, 136) if owned else ((203, 115, 89) if base["owner"] else (206, 178, 84))
+        dot(surface, (25, 37, 35), x, y, 57 * SCALE)
+        dot(surface, (73, 76, 65), x, y, 49 * SCALE)
+        pygame.draw.circle(surface, color, (x, y), 43 * SCALE, 7)
+        pygame.draw.rect(surface, color, (x - 27, y - 27, 54, 54), border_radius=5)
+        pygame.draw.rect(surface, (30, 39, 34), (x - 18, y - 18, 36, 36), 4)
+        if base.get("capturing"):
+            progress = min(1.0, base.get("progress", 0) / 2.5)
+            pygame.draw.arc(surface, (249, 231, 112),
+                            pygame.Rect(x - 108, y - 108, 216, 216),
+                            -math.pi / 2, -math.pi / 2 + progress * math.tau, 11)
+    for box in pillboxes:
+        if box["hp"] <= 0:
+            continue
+        x, y = point(box["x"], box["y"], camera)
+        pygame.draw.circle(surface, (23, 37, 36), (x, y), 29 * SCALE)
+        pygame.draw.circle(surface, (139, 102, 77), (x, y), 22 * SCALE)
+        pygame.draw.circle(surface, (64, 65, 58), (x, y), 14 * SCALE)
+        pygame.draw.line(surface, (234, 132, 81), (x, y), (x + 21 * SCALE, y), 8)
+        pygame.draw.rect(surface, (44, 43, 39),
+                         (x - 27, y + 35, 54, 8))
+        pygame.draw.rect(surface, (223, 114, 79),
+                         (x - 27, y + 35, max(0, int(54 * box["hp"] / 100)), 8))
     for shell in bullets:
         x, y = point(shell["x"], shell["y"], camera)
         dot(surface, (255, 170, 68), x, y, 12)
@@ -171,13 +237,13 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     for p in players:
         tank(surface, p, camera, fonts["label"], local_id)
     particles(surface, camera, effects)
-    minimap(surface, players, local_id, camera)
+    minimap(surface, players, local_id, camera, bases, pillboxes)
 
     panel = pygame.Surface((1430, 144), pygame.SRCALPHA)
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  FIELD TEST v0.5", True, (235, 233, 208)),
+        "BOLO-LAN  /  TERRITORY TEST v0.6", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | CLICK FIRE | M MUTE",
@@ -185,7 +251,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     local = next((p for p in players if p["id"] == local_id), None)
     if local:
         surface.blit(fonts["label"].render(
-            f"ARMOUR {local['hp']:3d}%     KILLS {local['score']}",
+            f"ARMOUR {local['hp']:3d}%     AMMO {local.get('ammo', 24):2d}/24     KILLS {local['score']}",
             True, (252, 245, 205)), (40, RENDER_H - 50))
     if not connected:
         text = fonts["heading"].render(status, True, (255, 203, 110))

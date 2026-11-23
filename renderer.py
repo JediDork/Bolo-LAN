@@ -72,10 +72,11 @@ def make_terrain_cache():
                 dx = abs(nx - tx)
                 # Road joins use actual rectangles, but their outer shoulders
                 # are circular so bends read like graded tracks, not squares.
-                rect = pygame.Rect(round(mid_x - (GRID_SIZE if dx else 22) * SCALE),
-                                   round(mid_y - (22 if dx else GRID_SIZE) * SCALE),
-                                   (GRID_SIZE * 2 if dx else 44) * SCALE,
-                                   (44 if dx else GRID_SIZE * 2) * SCALE)
+                rect = pygame.Rect(
+                    round(mid_x - (25 if dx else 22) * SCALE),
+                    round(mid_y - (22 if dx else 25) * SCALE),
+                    (50 if dx else 44) * SCALE,
+                    (44 if dx else 50) * SCALE)
                 pygame.draw.rect(result, (139, 122, 94), rect)
 
     # Draw the river over the roads: at a crossing the road ends at each bank
@@ -233,6 +234,18 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
     left, top = RENDER_W - ww - 36, 144
     panel = pygame.Rect(left - 10, top - 10, ww + 20, hh + 20)
     pygame.draw.rect(surface, (18, 37, 33), panel)
+    # Radar uses the same tile masks: the river/forest/roads are visible
+    # before players commit to a crossing or a base assault.
+    for mask, color in ((FOREST_TILES, (43, 87, 51)),
+                        (ROAD_TILES, (127, 113, 88)),
+                        (RIVER_TILES, (54, 118, 146)),
+                        (LAKE_TILES, (38, 93, 139))):
+        for tx, ty in mask:
+            pygame.draw.rect(surface, color,
+                             (round(left + tx * GRID_SIZE * radar_scale),
+                              round(top + ty * GRID_SIZE * radar_scale),
+                              max(1, round(GRID_SIZE * radar_scale)),
+                              max(1, round(GRID_SIZE * radar_scale))))
     pygame.draw.rect(surface, (133, 155, 126), panel, 4)
     rect = pygame.Rect(left + round(camera[0] * radar_scale),
                        top + round(camera[1] * radar_scale),
@@ -265,6 +278,12 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
         pygame.draw.circle(surface, color, (x, y), 43 * SCALE, 7)
         pygame.draw.rect(surface, color, (x - 27, y - 27, 54, 54), border_radius=5)
         pygame.draw.rect(surface, (30, 39, 34), (x - 18, y - 18, 36, 36), 4)
+        # A little raised flag distinguishes capture objectives from terrain.
+        pygame.draw.line(surface, (34, 41, 38), (x + 20, y - 18),
+                         (x + 20, y - 72), 6)
+        pygame.draw.polygon(surface, color,
+                            ((x + 22, y - 72), (x + 64, y - 62),
+                             (x + 22, y - 50)))
         if base.get("capturing"):
             progress = min(1.0, base.get("progress", 0) / 2.5)
             pygame.draw.arc(surface, (249, 231, 112),

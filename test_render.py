@@ -7,6 +7,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 
 from audio import SAMPLE_RATE, _synth
+from engine_audio import engine_loop
 from effects import Effects
 from renderer import RENDER_H, RENDER_W, draw_frame
 from shared import WALL_MAX_HP, WALL_SECTIONS
@@ -56,6 +57,17 @@ class RenderTests(unittest.TestCase):
                    [WALL_MAX_HP] * len(WALL_SECTIONS),
                    [], [p], 1, Effects(), self.fonts,
                    "localhost", 50000, True, "", bases, pillboxes)
+
+    def test_engine_layers_are_complete_loop_buffers(self):
+        for hz in (21, 34, 49):
+            with self.subTest(hz=hz):
+                raw = engine_loop(hz)
+                self.assertEqual(len(raw), SAMPLE_RATE * 2)
+                # The periodic waveform has no audible click at loop boundary.
+                from array import array
+                samples = array("h")
+                samples.frombytes(raw)
+                self.assertLess(abs(samples[0] - samples[-1]), 5000)
 
     def test_audio_buffers_have_mono_16_bit_samples(self):
         for kind, length in (("fire", 0.19), ("impact", 0.14),

@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 import os
+import random
 import select
 import socket
 import time
@@ -10,6 +11,7 @@ import time
 import pygame
 
 from shared import PORT, WALLS, WORLD_H, WORLD_W
+from effects import Effects, draw_details, draw_minimap
 
 WIDTH, HEIGHT = 1200, 760
 BG = (45, 82, 61)
@@ -73,6 +75,17 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (19, 29, 28), points)
     pygame.draw.polygon(surface, color, points, 0)
     pygame.draw.polygon(surface, (20, 32, 31), points, 2)
+    # Two animated-looking tread rails, oriented with hull.
+    for side in (-1, 1):
+        rail = []
+        for forward in (-17, 17):
+            rail.append((int(x + ca * forward - sa * side * 13),
+                         int(y + sa * forward + ca * side * 13)))
+        pygame.draw.line(surface, (22, 36, 31), rail[0], rail[1], 6)
+        for forward in (-14, -7, 0, 7, 14):
+            tx = int(x + ca * forward - sa * side * 13)
+            ty = int(y + sa * forward + ca * side * 13)
+            pygame.draw.circle(surface, (78, 83, 70), (tx, ty), 2)
     # Independent turret and barrel
     end = (int(x + math.cos(turret) * 34), int(y + math.sin(turret) * 34))
     pygame.draw.line(surface, (23, 34, 32), (x, y), end, 11)
@@ -96,6 +109,7 @@ def draw_ground(surface, camera):
     for wy in range(start_y, int(camera[1] + HEIGHT) + grid, grid):
         y = int(wy - camera[1])
         pygame.draw.line(surface, (51, 91, 67), (0, y), (WIDTH, y), 1)
+    draw_details(surface, camera, WIDTH, HEIGHT)
     for wx, wy, ww, wh in WALLS:
         rect = pygame.Rect(wx - camera[0], wy - camera[1], ww, wh)
         pygame.draw.rect(surface, (83, 83, 74), rect)
@@ -124,12 +138,16 @@ def main():
     send(sock, addr, {"type": "join", "name": args.name})
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Bolo-LAN | First Battle")
+    pygame.display.set_caption("Bolo-LAN | Combat Prototype v0.2")
     font = pygame.font.SysFont("consolas", 16, bold=True)
     heading = pygame.font.SysFont("consolas", 23, bold=True)
     clock = pygame.time.Clock()
     local_id = None
-    state = {"players": [], "bullets": []}
+    state = {"players": [], "bullets": [], "events": []}
+    effects = Effects()
+    visual_players = {}
+    last_event_id = 0
+    dust_timer = 0.0
     camera = [0.0, 0.0]
     previous_join = time.monotonic()
     previous_input = 0.0
@@ -137,7 +155,7 @@ def main():
     running = True
 
     while running:
-        clock.tick(60)
+        dt = min(clock.tick(60) / 1000.0, 0.05)
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 running = False
@@ -155,6 +173,13 @@ def main():
             if message.get("type") == "welcome":
                 local_id = message["id"]
             elif message.get("type") == "state":
+                # Events retain IDs across snapshots, so duplicate packets never replay an explosion.
+                events = message.get("events", [])
+                for event in events:
+                    if event["id"] > last_event_id:
+                        effects.burst(event["type"], event["x"], event["y"],
+                                      event.get("angle", 0))
+                        last_event_id = event["id"]
                 state = message
                 last_snapshot = time.monotonic()
             elif message.get("type") == "error":
@@ -164,7 +189,32 @@ def main():
         if local_id is None and now - previous_join > 1:
             send(sock, addr, {"type": "join", "name": args.name})
             previous_join = now
-        player = next((p for p in state["players"] if p["id"] == local_id), None)
+        # Presentation smoothing: no gameplay authority is moved to the client.
+        blend = 1.0 - math.exp(-dt * 19.0)
+        present_ids = set()
+        for authoritative in state["players"]:
+            pid = authoritative["id"]
+            present_ids.add(pid)
+            if pid not in visual_players or authoritative.get("dead"):
+                visual_players[pid] = dict(authoritative)
+                continue
+            visual = visual_players[pid]
+            delta = math.hypot(authoritative["x"] - visual["x"],
+                               authoritative["y"] - visual["y"])
+            if delta > 180:
+                visual.update(authoritative)
+                continue
+            for key in ("x", "y"):
+                visual[key] += (authoritative[key] - visual[key]) * blend
+            for key in ("a", "t"):
+                diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
+                visual[key] = (visual[key] + diff * blend) % math.tau
+            for key in ("name", "hp", "score", "dead", "color"):
+                visual[key] = authoritative[key]
+        for pid in list(visual_players):
+            if pid not in present_ids:
+                del visual_players[pid]
+        player = visual_players.get(local_id)
         if player:
             camera[0] += (player["x"] - WIDTH / 2 - camera[0]) * 0.15
             camera[1] += (player["y"] - HEIGHT / 2 - camera[1]) * 0.15
@@ -181,15 +231,31 @@ def main():
                               "aim": aim, "fire": firing})
             previous_input = now
 
+        effects.update(dt)
+        dust_timer -= dt
+        if dust_timer <= 0:
+            for moving in visual_players.values():
+                if moving.get("dead"):
+                    continue
+                # Only emit track dust for tanks visibly changing position.
+                original = next((p for p in state["players"] if p["id"] == moving["id"]), None)
+                if original and math.hypot(moving["x"] - original["x"],
+                                            moving["y"] - original["y"]) > 1.5:
+                    a = moving["a"]
+                    effects.dust(moving["x"] - math.cos(a) * 20,
+                                 moving["y"] - math.sin(a) * 20)
+            dust_timer = 0.08
         draw_ground(screen, camera)
         for bullet in state["bullets"]:
             bx, by = xy(bullet["x"], bullet["y"], camera)
             pygame.draw.circle(screen, (255, 170, 68), (bx, by), 6)
             pygame.draw.circle(screen, (255, 235, 164), (bx, by), 3)
-        for item in state["players"]:
+        for item in visual_players.values():
             tank(screen, item, camera, font, local_id)
+        effects.draw(screen, camera)
+        draw_minimap(screen, list(visual_players.values()), local_id, camera, WIDTH, HEIGHT)
         pygame.draw.rect(screen, (16, 30, 29), (0, 0, WIDTH, 56))
-        title = heading.render("BOLO-LAN  /  FIRST BATTLE", True, (235, 233, 208))
+        title = heading.render("BOLO-LAN  /  COMBAT PROTOTYPE v0.2", True, (235, 233, 208))
         screen.blit(title, (15, 8))
         info = font.render(f"HOST {host}:{args.port}  |  PLAYERS {len(state['players'])}  |  WASD MOVE  MOUSE AIM  CLICK FIRE",
                            True, (191, 208, 195))

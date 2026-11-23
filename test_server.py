@@ -139,6 +139,9 @@ class GameServerTests(unittest.TestCase):
         self.server.step(1 / 30)
         self.assertLess(p["speed"], 125.0)
         for _ in range(35):
+            # Hold the position in shallow river to isolate its traction
+            # model from a route that might exit the river after 1 second.
+            p["x"], p["y"] = float(x), float(y)
             self.server.step(1 / 30)
         self.assertLessEqual(abs(p["speed"]), 125.0 * TERRAIN_SPEED["river"] + 5.0)
 

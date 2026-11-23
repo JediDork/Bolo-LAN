@@ -147,7 +147,7 @@ def edge_river(source, destination, axis):
 # only at river speed except where roads create existing bridges.
 RIVER_PATHS = (
     edge_river((52, 0), (52, 37), "y"),
-    edge_river((0, 53), (31, 53), "x"),
+    edge_river((0, 64), (31, 53), "x"),
 )
 RIVER_TILES = frozenset(tile for path in RIVER_PATHS for tile in path)
 # Rivers cut through forest, but do not alter the lake collision footprint.

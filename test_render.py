@@ -123,7 +123,7 @@ class RenderTests(unittest.TestCase):
         field = pygame.Surface((450, 450))
         field.fill((48, 80, 64))
         tank(field, player, (0, 0), self.fonts["label"], 1)
-        ring_edge = (362, 300)
+        ring_edge = (238, 300)
         reloading = tuple(field.get_at(ring_edge)[:3])
         player["reload"] = 0.0
         field.fill((48, 80, 64))

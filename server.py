@@ -155,6 +155,13 @@ class GameServer:
             multiplier = TERRAIN_SPEED[ground]
             target_speed = (MOVE_SPEED if throttle > 0 else REVERSE_SPEED) * multiplier * throttle
             speed = player["speed"]
+            # Fording a river imposes heavy water drag immediately, not just
+            # a lower eventual top speed. Otherwise a fast tank could coast
+            # across a short ford before slowing.
+            if ground == "river" and abs(speed) > MOVE_SPEED * multiplier:
+                speed += clamp(math.copysign(MOVE_SPEED * multiplier, speed) - speed,
+                               -400.0 * dt, 400.0 * dt)
+                player["speed"] = speed
             if throttle == 0:
                 change = ROLLING_DRAG * dt
             else:

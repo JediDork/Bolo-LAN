@@ -2,6 +2,31 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.12 — Playable base builder
+
+- Press **B** to enter or exit build mode. The tank remains driveable, but left-click now places selected construction; **Space** still fires its cannon.
+- In build mode, press **1** to build one 50x50 masonry wall tile (**2 materials**), **2** for a wooden bridge over a non-bridged river tile (**5 materials**), **3** for an owned autonomous pillbox (**8 materials**), **4** to repair a damaged wall/owned pillbox (**1 material**), or **5** to dismantle your own structures (**free**). Then **left-click the target grid tile**.
+- Buildings must be placed within **175 world units** of your tank; construction is restricted to suitable, unoccupied tiles. Walls and pillboxes cannot overlap forests, lakes, rivers, bases, existing defences, tanks or bridges. Bridges require an open river tile. The server checks all rules, preventing clients from placing remote/invalid structures.
+- Start with **18 materials**, can hold up to **30**, and replenish at **1.2 materials/second** when standing at a base you own. Materials do not reset when you respawn.
+- Built walls have **four hit points**, stop tanks and shells, display incremental damage and can be repaired or dismantled. Owned pillboxes automatically fire at enemy tanks. Newly built bridges appear for everyone and permit road-speed travel across the formerly slow river.
+- A highlighted tile follows the cursor in build mode. Build confirmations and errors appear in the HUD, alongside the materials count. Assets persist for the duration of the host's game session; saving maps is planned for a later milestone.
+- The initial prototype allows all participants to build. **G** remains an unrestricted developer/test god-mode toggle, not a competitive permission.
+
+### Build controls
+
+| Key | Action | Material cost |
+| --- | --- | ---: |
+| **B** | Toggle build mode | — |
+| **1** | Select wall | 2 |
+| **2** | Select bridge | 5 |
+| **3** | Select pillbox | 8 |
+| **4** | Select repair tool | 1 |
+| **5** | Select remove tool | 0 |
+| **Left-click** | Apply selected tool to grid tile | depends |
+| **Space** | Fire while in build mode | ammo |
+
+**Multiplayer:** everyone must update host and clients to v0.12 for matching state and build commands.
+
 ## Version 0.11 — Visible-range defences and testing god mode
 
 - Pillbox engagement reduced from **850 to 355 world units**. Since all players see exactly **1200 × 760 world units** at once, this is slightly inside the vertical half-screen of 380 units. Players approaching from above or below should see a pillbox shortly before it begins firing. (Visibility near the world boundary or behind the HUD will still vary.)
@@ -158,6 +183,7 @@ Windows Firewall: allow inbound **UDP 50000** on the host. Client discovery uses
 - **Left mouse** or **Space**: fire
 - **M**: mute/unmute sounds
 - **G**: toggle testing god mode (invulnerability)
+- **B**: toggle build mode; 1–5 select parts; click tile to build
 - **Esc**: quit
 
 ### Architecture

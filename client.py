@@ -189,7 +189,8 @@ def main(argv=None):
     clock = pygame.time.Clock()
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
-             "walls": [WALL_MAX_HP] * len(WALL_SECTIONS)}
+             "walls": [WALL_MAX_HP] * len(WALL_SECTIONS),
+             "bases": [], "pillboxes": []}
     effects = Effects()
     visual_players = {}
     last_event_id = 0
@@ -265,7 +266,7 @@ def main(argv=None):
             for key in ("a", "t"):
                 diff = (authoritative[key] - visual[key] + math.pi) % math.tau - math.pi
                 visual[key] = (visual[key] + diff * blend) % math.tau
-            for key in ("name", "hp", "score", "dead", "color"):
+            for key in ("name", "hp", "score", "dead", "color", "speed", "ammo"):
                 visual[key] = authoritative[key]
         for pid in list(visual_players):
             if pid not in present_ids:
@@ -306,7 +307,8 @@ def main(argv=None):
             screen, camera, state.get("walls", []), state["bullets"],
             list(visual_players.values()), local_id, effects, fonts,
             host, args.port, connected,
-            "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST")
+            "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST",
+            state.get("bases", []), state.get("pillboxes", []))
         # Keep the SAME world view on all displays, with filtered scaling.
         display.fill((0, 0, 0))
         left, top, draw_width, draw_height = view

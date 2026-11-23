@@ -340,7 +340,24 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (255, 227, 91), arrow)
     pygame.draw.polygon(surface, (35, 36, 24), arrow, 3)
     if player["id"] == local_id:
-        pygame.draw.circle(surface, (246, 244, 174), (x, y), 60, 4)
+        # Clockwise reload indicator encircles the local tank. The ring
+        # starts empty after firing, fills as the breech cycles, then remains
+        # solid green when the cannon is ready. Amber = reloading.
+        remaining = max(0.0, float(player.get("reload", 0.0)))
+        duration = max(0.01, float(player.get("reload_duration", 1.25)))
+        progress = max(0.0, min(1.0, 1.0 - remaining / duration))
+        ring_radius = 31 * SCALE
+        ring_rect = pygame.Rect(x - ring_radius, y - ring_radius,
+                                ring_radius * 2, ring_radius * 2)
+        pygame.draw.circle(surface, (37, 48, 43), (x, y),
+                           ring_radius, 6)
+        if remaining <= 0:
+            pygame.draw.circle(surface, (107, 226, 131), (x, y),
+                               ring_radius, 6)
+        elif progress > 0:
+            pygame.draw.arc(surface, (248, 189, 79), ring_rect,
+                            -math.pi / 2, -math.pi / 2 + progress * math.tau,
+                            6)
     if player.get("god_mode"):
         # Gold shield ring communicates invulnerability to all LAN players.
         pygame.draw.circle(surface, (255, 222, 90), (x, y), 38 * SCALE, 4)

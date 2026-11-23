@@ -10,7 +10,8 @@ from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
 from display import viewport, to_logical
 from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
                      terrain_at, water_at, ROAD_TILES, LAKE_TILES,
-                     FOREST_TILES, RIVER_TILES, neighbors)
+                     FOREST_TILES, RIVER_TILES, BRIDGE_TILES,
+                     initial_wall_hp, neighbors)
 
 
 class GameServerTests(unittest.TestCase):
@@ -93,7 +94,7 @@ class GameServerTests(unittest.TestCase):
 
     def test_wall_damage_is_in_snapshot(self):
         self.assertEqual(len(self.server.wall_hp), len(WALL_SECTIONS))
-        self.assertTrue(all(hp == WALL_MAX_HP for hp in self.server.wall_hp))
+        self.assertEqual(self.server.wall_hp, initial_wall_hp())
 
 
     def test_acceleration_and_coasting(self):
@@ -233,6 +234,37 @@ class ConstructionGridTests(unittest.TestCase):
                     queue.append(neighbor)
         for base in BASE_TILES:
             self.assertIn(base, visited)
+
+    def test_river_one_tile_wide(self):
+        rows = sorted({ty for _, ty in RIVER_TILES})
+        self.assertGreater(len(rows), 20)
+        self.assertEqual(rows, list(range(rows[0], rows[-1] + 1)))
+        previous = None
+        for row in rows:
+            columns = [tx for tx, ty in RIVER_TILES if ty == row]
+            self.assertEqual(len(columns), 1)
+            if previous is not None:
+                self.assertLessEqual(abs(columns[0] - previous), 1)
+            previous = columns[0]
+
+    def test_road_bridges_cross_river(self):
+        self.assertTrue(BRIDGE_TILES)
+        self.assertEqual(BRIDGE_TILES, ROAD_TILES & RIVER_TILES)
+        for tile in BRIDGE_TILES:
+            self.assertEqual(terrain_at(*tile_to_world(*tile)), "bridge")
+            self.assertFalse(water_at(*tile_to_world(*tile), 18))
+        for tile in RIVER_TILES - BRIDGE_TILES:
+            self.assertEqual(terrain_at(*tile_to_world(*tile)), "river")
+        self.assertGreater(TERRAIN_SPEED["bridge"], TERRAIN_SPEED["river"])
+
+    def test_surviving_walls_clear_forests(self):
+        hp = initial_wall_hp()
+        for index, (x, y, _, _) in enumerate(WALL_SECTIONS):
+            if hp[index] <= 0:
+                continue
+            tx, ty = x // GRID_SIZE, y // GRID_SIZE
+            self.assertFalse(any((tx + dx, ty + dy) in FOREST_TILES
+                                 for dx in (-1, 0, 1) for dy in (-1, 0, 1)))
 
     def test_lakes_and_forests_have_irregular_edges(self):
         # Their tile-row widths change as the organic contour is traversed.

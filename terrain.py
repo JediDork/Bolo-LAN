@@ -12,7 +12,7 @@ from shared import GRID_SIZE, WALL_SECTIONS, WORLD_H, WORLD_W, tile_to_world
 
 GRID_W = WORLD_W // GRID_SIZE
 GRID_H = WORLD_H // GRID_SIZE
-BASE_TILES = ((3, 6), (48, 29), (46, 5), (4, 31), (25, 8), (25, 30))
+BASE_TILES = ((3, 6), (48, 29), (46, 5), (4, 31), (19, 8), (32, 30))
 PILLBOX_TILES = ((15, 21), (33, 19), (27, 14), (21, 25))
 BASE_SITES = tuple(tile_to_world(*tile) for tile in BASE_TILES)
 PILLBOX_SITES = tuple(tile_to_world(*tile) for tile in PILLBOX_TILES)

@@ -29,7 +29,17 @@ class GameServer:
         self.bullets = []
         self.next_id = 1
         self.tick = 0
+        self.events = []
+        self.next_event = 1
         print(f"Bolo-LAN server listening on UDP {port} (Ctrl+C to stop)")
+
+    def event(self, kind, x, y, **extra):
+        entry = {"id": self.next_event, "type": kind, "x": round(x, 1),
+                 "y": round(y, 1), "tick": self.tick}
+        entry.update(extra)
+        self.next_event += 1
+        self.events.append(entry)
+        self.events = self.events[-48:]
 
     def transmit(self, address, message):
         try:
@@ -135,6 +145,8 @@ class GameServer:
                                      "vx": math.cos(angle) * SHELL_SPEED,
                                      "vy": math.sin(angle) * SHELL_SPEED,
                                      "life": SHELL_LIFE, "owner": player_id})
+                self.event("fire", player["x"] + math.cos(angle) * 34,
+                           player["y"] + math.sin(angle) * 34, angle=angle)
                 player["reload"] = RELOAD
         remaining = []
         for bullet in self.bullets:
@@ -143,8 +155,10 @@ class GameServer:
             bullet["y"] += bullet["vy"] * dt
             bullet["life"] -= dt
             if (bullet["life"] <= 0 or not 0 <= bullet["x"] <= WORLD_W
-                    or not 0 <= bullet["y"] <= WORLD_H
-                    or segment_hits_wall(old_x, old_y, bullet["x"], bullet["y"])):
+                    or not 0 <= bullet["y"] <= WORLD_H):
+                continue
+            if segment_hits_wall(old_x, old_y, bullet["x"], bullet["y"]):
+                self.event("impact", bullet["x"], bullet["y"])
                 continue
             hit = False
             for player in self.players.values():
@@ -157,10 +171,12 @@ class GameServer:
                           / max(length2, 0.0001), 0, 1)
                 dist2 = (old_x + t * dx - player["x"]) ** 2 + (old_y + t * dy - player["y"]) ** 2
                 if dist2 <= (TANK_RADIUS + 4) ** 2:
+                    self.event("hit", player["x"], player["y"])
                     player["hp"] -= 34
                     if player["hp"] <= 0:
                         player["hp"] = 0
                         player["respawn"] = 2.3
+                        self.event("destroy", player["x"], player["y"])
                         attacker = self.players.get(bullet["owner"])
                         if attacker:
                             attacker["score"] += 1
@@ -179,7 +195,8 @@ class GameServer:
         bullets = [{"x": round(b["x"], 1), "y": round(b["y"], 1)}
                    for b in self.bullets]
         message = {"type": "state", "tick": self.tick, "players": players,
-                   "bullets": bullets}
+                   "bullets": bullets,
+                   "events": [e for e in self.events if self.tick - e["tick"] <= 30]}
         for address in list(self.addresses):
             self.transmit(address, message)
 

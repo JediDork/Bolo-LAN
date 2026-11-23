@@ -55,6 +55,7 @@ class GameServer:
         self.wall_hp = initial_wall_hp()
         self.built_walls = {}  # (tile_x, tile_y) -> {hp, owner}
         self.built_bridges = set()
+        self.bridge_owners = {}
         self.next_id = 1
         self.tick = 0
         self.events = []
@@ -362,6 +363,7 @@ class GameServer:
             if player_occupies or original_wall is not None or built_wall or box:
                 return respond(False, "CROSSING BLOCKED")
             self.built_bridges.add(tile)
+            self.bridge_owners[tile] = player["id"]
         elif part == "repair":
             if original_wall is not None and self.wall_hp[original_wall] < WALL_MAX_HP:
                 self.wall_hp[original_wall] = min(WALL_MAX_HP, self.wall_hp[original_wall] + 1)
@@ -376,8 +378,9 @@ class GameServer:
         elif part == "remove":
             if built_wall is not None and built_wall["owner"] == player["id"]:
                 del self.built_walls[tile]
-            elif tile in self.built_bridges:
+            elif tile in self.built_bridges and self.bridge_owners.get(tile) == player["id"]:
                 self.built_bridges.remove(tile)
+                self.bridge_owners.pop(tile, None)
             elif box is not None and box["owner"] == player["id"]:
                 box["hp"] = 0
             else:

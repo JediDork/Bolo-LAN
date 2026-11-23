@@ -138,10 +138,19 @@ class GameServer:
             # the flag centre is occupied. A safe nearby offset is preferable
             # to stacking tanks on the same tile.
             for base in owned:
-                for dx, dy in ((45, 0), (-45, 0), (0, 45), (0, -45),
-                               (35, 35), (-35, 35), (35, -35), (-35, -35)):
+                for dx, dy in ((50, 0), (-50, 0), (0, 50), (0, -50),
+                               (38, 38), (-38, 38), (38, -38), (-38, -38)):
                     x, y = wrap_x(base["x"] + dx), base["y"] + dy
-                    if self.is_safe_spawn(x, y, player_id, strict=False):
+                    # A contested claim may have players nearby. Require
+                    # physical separation rather than the 450-unit
+                    # open-world safety radius: we MUST stay on our flag.
+                    if (not self.blocked(x, y)
+                            and TANK_RADIUS + 25 <= y <= WORLD_H - TANK_RADIUS - 25
+                            and all(other["id"] == player_id
+                                    or other.get("respawn", 0) > 0
+                                    or wrapped_distance(x, y, other["x"], other["y"])
+                                    >= 2 * TANK_RADIUS + 10
+                                    for other in self.players.values())):
                         return x, y, "owned_flag"
             # In a fully contested base a guaranteed respawn on owned land
             # is still preferable to spawning at a neutral/enemy objective.

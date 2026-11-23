@@ -80,6 +80,18 @@ class RenderTests(unittest.TestCase):
                    "localhost", 50000, True, "",
                    built_roads=((6, 5), (7, 5), (8, 5)))
 
+    def test_player_roads_join_over_world_seam(self):
+        from terrain import GRID_W
+        surface = pygame.Surface((500, 140))
+        surface.fill((45, 82, 61))
+        tiles = {(GRID_W - 1, 0), (0, 0)}
+        camera = (WORLD_W - 100, 0)
+        draw_road_network(surface, tiles, lambda x, y: point(x, y, camera))
+        # World longitude 5200 should be fully covered by a continuous
+        # roadbed, not two disconnected rounded terminal caps.
+        self.assertEqual(tuple(surface.get_at((200, 50))[:3]),
+                         (139, 122, 94))
+
     def test_camera_displays_both_sides_of_wrapped_planet(self):
         camera = (WORLD_W - 220, 300)
         west, _ = point(45, 400, camera)

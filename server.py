@@ -9,7 +9,6 @@ from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
                     WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
                      water_at)
-#
 
 MOVE_SPEED = 195.0
 REVERSE_SPEED = 125.0
@@ -217,6 +216,24 @@ class GameServer:
                     self.event("wall_break", wx + ww / 2, wy + wh / 2)
                 continue
             hit = False
+            if bullet["owner"] > 0:
+                for box in self.pillboxes:
+                    if box["hp"] <= 0:
+                        continue
+                    dx = bullet["x"] - old_x
+                    dy = bullet["y"] - old_y
+                    t = clamp(((box["x"] - old_x) * dx + (box["y"] - old_y) * dy)
+                              / max(0.0001, dx * dx + dy * dy), 0, 1)
+                    if ((old_x + t * dx - box["x"]) ** 2 +
+                            (old_y + t * dy - box["y"]) ** 2) <= 23 ** 2:
+                        box["hp"] = max(0, box["hp"] - 25)
+                        self.event("hit", box["x"], box["y"])
+                        if box["hp"] == 0:
+                            self.event("wall_break", box["x"], box["y"])
+                        hit = True
+                        break
+            if hit:
+                continue
             for player in self.players.values():
                 if player["id"] == bullet["owner"] or player["respawn"] > 0:
                     continue

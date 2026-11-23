@@ -7,10 +7,21 @@ import time
 
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
                     WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
+from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
+                     water_at)
+#
 
 MOVE_SPEED = 195.0
 REVERSE_SPEED = 125.0
 TURN_SPEED = 2.9
+ACCELERATION = 245.0        # World units per second squared
+BRAKE_ACCELERATION = 370.0  # Counter-throttle response
+ROLLING_DRAG = 115.0        # Natural coasting resistance
+TURN_ACCELERATION = 7.5
+TURN_DRAG = 10.0
+CAPTURE_TIME = 2.5
+BASE_RADIUS = 54
+PILLBOX_RANGE = 315
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
@@ -30,6 +41,12 @@ class GameServer:
         self.players = {}
         self.addresses = {}
         self.bullets = []
+        self.bases = [{"id": i, "x": float(x), "y": float(y),
+                       "owner": 0, "capturing": 0, "progress": 0.0}
+                      for i, (x, y) in enumerate(BASE_SITES)]
+        self.pillboxes = [{"id": i, "x": float(x), "y": float(y),
+                           "hp": 100, "cooldown": 0.7, "owner": 0}
+                          for i, (x, y) in enumerate(PILLBOX_SITES)]
         self.wall_hp = [WALL_MAX_HP] * len(WALL_SECTIONS)
         self.next_id = 1
         self.tick = 0
@@ -55,7 +72,9 @@ class GameServer:
         i = (player["id"] - 1) % len(SPAWNS)
         player.update(x=float(SPAWNS[i][0]), y=float(SPAWNS[i][1]),
                       angle=0.0 if i % 2 == 0 else math.pi,
-                      turret=0.0 if i % 2 == 0 else math.pi, hp=100, reload=0.0, respawn=0.0)
+                      turret=0.0 if i % 2 == 0 else math.pi, hp=100,
+                      ammo=24, speed=0.0, angular_speed=0.0,
+                      reload=0.0, respawn=0.0)
 
     def handle(self, data, address):
         if len(data) > 1024:
@@ -129,23 +148,44 @@ class GameServer:
                     self.spawn(player)
                 continue
             command = player["input"]
-            player["angle"] = (player["angle"] + command.get("turn", 0) * TURN_SPEED * dt) % (2 * math.pi)
+            # Realistic tracked-tank drive: acceleration, braking, coasting,
+            # and turn inertia are simulated ONLY on the authoritative host.
+            throttle = command.get("move", 0)
+            turning = command.get("turn", 0)
+            ground = terrain_at(player["x"], player["y"])
+            multiplier = TERRAIN_SPEED[ground]
+            target_speed = (MOVE_SPEED if throttle > 0 else REVERSE_SPEED) * multiplier * throttle
+            speed = player["speed"]
+            if throttle == 0:
+                change = ROLLING_DRAG * dt
+            else:
+                change = (BRAKE_ACCELERATION if speed * throttle < 0 else ACCELERATION) * dt
+            player["speed"] += clamp(target_speed - speed, -change, change)
+            # Turning is slightly less responsive at maximum speed.
+            turn_limit = TURN_SPEED * (0.76 if abs(player["speed"]) > 155 else 1.0)
+            target_turn = turning * turn_limit
+            step_turn = (TURN_ACCELERATION if turning else TURN_DRAG) * dt
+            player["angular_speed"] += clamp(target_turn - player["angular_speed"],
+                                              -step_turn, step_turn)
+            player["angle"] = (player["angle"] + player["angular_speed"] * dt) % (2 * math.pi)
             desired = command.get("aim", player["turret"])
             difference = (desired - player["turret"] + math.pi) % (2 * math.pi) - math.pi
             player["turret"] = (player["turret"] +
                                 clamp(difference, -TURRET_SPEED * dt, TURRET_SPEED * dt)) % (2 * math.pi)
-            throttle = command.get("move", 0)
-            speed = MOVE_SPEED if throttle > 0 else REVERSE_SPEED
-            vx = math.cos(player["angle"]) * throttle * speed * dt
-            vy = math.sin(player["angle"]) * throttle * speed * dt
-            nx = clamp(player["x"] + vx, TANK_RADIUS, WORLD_W - TANK_RADIUS)
-            ny = clamp(player["y"] + vy, TANK_RADIUS, WORLD_H - TANK_RADIUS)
-            if not overlaps_wall(nx, player["y"], TANK_RADIUS, self.wall_hp):
+            dx = math.cos(player["angle"]) * player["speed"] * dt
+            dy = math.sin(player["angle"]) * player["speed"] * dt
+            nx = clamp(player["x"] + dx, TANK_RADIUS, WORLD_W - TANK_RADIUS)
+            ny = clamp(player["y"] + dy, TANK_RADIUS, WORLD_H - TANK_RADIUS)
+            if not overlaps_wall(nx, player["y"], TANK_RADIUS, self.wall_hp) and not water_at(nx, player["y"], TANK_RADIUS):
                 player["x"] = nx
-            if not overlaps_wall(player["x"], ny, TANK_RADIUS, self.wall_hp):
+            else:
+                player["speed"] = 0.0
+            if not overlaps_wall(player["x"], ny, TANK_RADIUS, self.wall_hp) and not water_at(player["x"], ny, TANK_RADIUS):
                 player["y"] = ny
+            else:
+                player["speed"] = 0.0
             player["reload"] = max(0.0, player["reload"] - dt)
-            if command.get("fire") and player["reload"] <= 0:
+            if command.get("fire") and player["reload"] <= 0 and player["ammo"] > 0:
                 angle = player["turret"]
                 self.bullets.append({"x": player["x"] + math.cos(angle) * 29,
                                      "y": player["y"] + math.sin(angle) * 29,
@@ -155,6 +195,9 @@ class GameServer:
                 self.event("fire", player["x"] + math.cos(angle) * 34,
                            player["y"] + math.sin(angle) * 34, angle=angle)
                 player["reload"] = RELOAD
+                player["ammo"] -= 1
+        self.update_bases(dt)
+        self.update_pillboxes(dt)
         remaining = []
         for bullet in self.bullets:
             old_x, old_y = bullet["x"], bullet["y"]
@@ -185,7 +228,7 @@ class GameServer:
                 dist2 = (old_x + t * dx - player["x"]) ** 2 + (old_y + t * dy - player["y"]) ** 2
                 if dist2 <= (TANK_RADIUS + 4) ** 2:
                     self.event("hit", player["x"], player["y"])
-                    player["hp"] -= 34
+                    player["hp"] -= bullet.get("damage", 34)
                     if player["hp"] <= 0:
                         player["hp"] = 0
                         player["respawn"] = 2.3
@@ -199,17 +242,72 @@ class GameServer:
                 remaining.append(bullet)
         self.bullets = remaining
 
+    def update_bases(self, dt):
+        for base in self.bases:
+            nearby = [p for p in self.players.values()
+                      if p["respawn"] <= 0 and
+                      math.hypot(p["x"] - base["x"], p["y"] - base["y"]) <= BASE_RADIUS]
+            # No captures when contested, and no instant ownership flips.
+            if len(nearby) != 1:
+                base["capturing"] = 0
+                base["progress"] = 0.0
+                continue
+            player = nearby[0]
+            pid = player["id"]
+            if base["owner"] == pid:
+                # One life point each ~0.13 seconds and one shell each 0.5 s.
+                player["hp"] = min(100, player["hp"] + 7.5 * dt)
+                player["ammo"] = min(24, player["ammo"] + 2.0 * dt)
+                continue
+            if base["capturing"] != pid:
+                base["capturing"] = pid
+                base["progress"] = 0.0
+            base["progress"] += dt
+            if base["progress"] >= CAPTURE_TIME:
+                base["owner"] = pid
+                base["capturing"] = 0
+                base["progress"] = 0.0
+                self.event("capture", base["x"], base["y"], owner=pid)
+
+    def update_pillboxes(self, dt):
+        for box in self.pillboxes:
+            if box["hp"] <= 0:
+                continue
+            box["cooldown"] = max(0.0, box["cooldown"] - dt)
+            if box["cooldown"] > 0:
+                continue
+            candidates = [p for p in self.players.values()
+                          if p["respawn"] <= 0 and p["id"] != box["owner"]
+                          and math.hypot(p["x"] - box["x"], p["y"] - box["y"]) < PILLBOX_RANGE]
+            if not candidates:
+                continue
+            target = min(candidates, key=lambda p: (p["x"] - box["x"]) ** 2 +
+                                                 (p["y"] - box["y"]) ** 2)
+            angle = math.atan2(target["y"] - box["y"], target["x"] - box["x"])
+            self.bullets.append({"x": box["x"] + math.cos(angle) * 24,
+                                 "y": box["y"] + math.sin(angle) * 24,
+                                 "vx": math.cos(angle) * SHELL_SPEED,
+                                 "vy": math.sin(angle) * SHELL_SPEED,
+                                 "life": 0.9, "owner": -1, "damage": 18})
+            self.event("fire", box["x"], box["y"], angle=angle)
+            box["cooldown"] = 1.35
+
     def snapshot(self):
         players = [{"id": p["id"], "name": p["name"], "x": round(p["x"], 1),
                     "y": round(p["y"], 1), "a": round(p["angle"], 3),
                     "t": round(p["turret"], 3), "hp": p["hp"], "score": p["score"],
-                    "dead": p["respawn"] > 0, "color": p["color"]}
+                    "dead": p["respawn"] > 0, "color": p["color"],
+                    "speed": round(p["speed"], 1), "ammo": int(p["ammo"])}
                    for p in self.players.values()]
         bullets = [{"x": round(b["x"], 1), "y": round(b["y"], 1)}
                    for b in self.bullets]
         message = {"type": "state", "tick": self.tick, "players": players,
                    "bullets": bullets,
                    "walls": self.wall_hp,
+                   "bases": [{k: (round(v, 2) if isinstance(v, float) else v)
+                              for k, v in base.items()} for base in self.bases],
+                   "pillboxes": [{k: v for k, v in box.items() if k != "cooldown"}
+                                 for box in self.pillboxes],
                    "events": [e for e in self.events if self.tick - e["tick"] <= 30]}
         for address in list(self.addresses):
             self.transmit(address, message)

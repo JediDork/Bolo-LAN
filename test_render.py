@@ -71,7 +71,7 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(tuple(surface.get_at((x, 50))[:3]), roadbed)
         for x in (50, 150, 250, 350):
             self.assertEqual(tuple(surface.get_at((x, 50))[:3]), roadbed)
-        self.assertNotEqual(tuple(surface.get_at((200, 10))[:3]), roadbed)
+        self.assertNotEqual(tuple(surface.get_at((200, 0))[:3]), roadbed)
 
     def test_built_roads_render_in_frame(self):
         self.surface.fill((0, 0, 0))

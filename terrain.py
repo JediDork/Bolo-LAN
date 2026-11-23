@@ -1,9 +1,7 @@
-"""Deterministic tile-world with organic forests/lakes and routed roads.
+"""Deterministic large world: natural terrain, edge-fed rivers and routed roads.
 
-The 50-unit GRID is the canonical collision/building coordinate system.
-Natural terrain is a *connected mask of grid cells* with irregular outlines,
-rather than the old four-sided rectangular zones. All clients and the host
-derive exactly the same layout from this module, without network transfers.
+All gameplay obstacles use the shared 50-unit grid. The visual shoreline
+follows smooth analytic boundaries, but gameplay is always deterministic.
 """
 import heapq
 import math
@@ -12,85 +10,150 @@ from shared import GRID_SIZE, WALL_SECTIONS, WORLD_H, WORLD_W, tile_to_world
 
 GRID_W = WORLD_W // GRID_SIZE
 GRID_H = WORLD_H // GRID_SIZE
-BASE_TILES = ((3, 6), (48, 29), (46, 5), (4, 31), (19, 8), (32, 30))
-PILLBOX_TILES = ((15, 21), (33, 19), (27, 14), (21, 25))
+
+# Six bases per quadrant: 24 flags across four strategic sectors.
+_LOCAL_BASE_TILES = ((3, 6), (48, 29), (46, 5),
+                     (4, 31), (19, 8), (32, 30))
+_LOCAL_PILLBOX_TILES = ((15, 21), (33, 19), (27, 14), (21, 25))
+SECTOR_X, SECTOR_Y = GRID_W // 2, GRID_H // 2
+BASE_TILES = tuple((x + ox, y + oy)
+                   for ox in (0, SECTOR_X) for oy in (0, SECTOR_Y)
+                   for x, y in _LOCAL_BASE_TILES)
+PILLBOX_TILES = tuple((x + ox, y + oy)
+                      for ox in (0, SECTOR_X) for oy in (0, SECTOR_Y)
+                      for x, y in _LOCAL_PILLBOX_TILES)
 BASE_SITES = tuple(tile_to_world(*tile) for tile in BASE_TILES)
 PILLBOX_SITES = tuple(tile_to_world(*tile) for tile in PILLBOX_TILES)
 
-# Centre / average elliptical radii. Multi-frequency boundary variation
-# creates bays, spurs and woodland fingers instead of rectangles.
-FOREST_PATCHES = (
+_LOCAL_FORESTS = (
     (555, 715, 220, 140, 1.4),
     (1725, 345, 210, 135, 2.2),
     (545, 1500, 195, 150, 3.7),
     (2040, 1375, 205, 160, 5.0),
     (1000, 455, 170, 115, 3.1),
 )
-LAKE_PATCHES = (
+_LOCAL_LAKES = (
     (1135, 973, 220, 100, 2.5),
     (2280, 1000, 165, 125, 0.6),
     (250, 825, 150, 95, 4.0),
 )
+FOREST_PATCHES = tuple((x + ox, y + oy, rx, ry, phase + ox / 1000)
+                       for ox in (0, WORLD_W // 2)
+                       for oy in (0, WORLD_H // 2)
+                       for x, y, rx, ry, phase in _LOCAL_FORESTS)
+LAKE_PATCHES = (
+    tuple((x + ox, y + oy, rx, ry, phase + oy / 900)
+          for ox in (0, WORLD_W // 2)
+          for oy in (0, WORLD_H // 2)
+          for x, y, rx, ry, phase in _LOCAL_LAKES)
+    + ((2600, 1860, 335, 220, 1.65),  # Major inland lake / northern river mouth
+       (1550, 2660, 310, 220, 3.4))  # Western lake / western river mouth
+)
 
-# The river is exactly ONE construction tile wide per row.
-# It meanders gradually (at most one cell sideways between rows).
-def river_center(y):
-    return (1260 + 220 * math.sin((y - 310) / 345.0)
-            + 85 * math.sin(y / 127.0))
 
-
-def river_tiles():
-    tiles = set()
-    last_x = None
-    for ty in range(6, 32):
-        desired_x = round((river_center(ty * GRID_SIZE + GRID_SIZE / 2)
-                           - GRID_SIZE / 2) / GRID_SIZE)
-        if last_x is not None:
-            desired_x = max(last_x - 1, min(last_x + 1, desired_x))
-        tiles.add((desired_x, ty))
-        last_x = desired_x
-    return tiles
+def blob_radius(angle, phase):
+    return (1.0 + 0.17 * math.sin(3 * angle + phase)
+            + 0.115 * math.sin(5 * angle - phase * 1.7)
+            + 0.07 * math.sin(9 * angle + phase * 2.8))
 
 
 def inside_blob(x, y, patch):
     cx, cy, rx, ry, phase = patch
-    dx = x - cx
-    dy = y - cy
+    dx, dy = x - cx, y - cy
     angle = math.atan2(dy / ry, dx / rx)
-    ripple = (1.0 + 0.17 * math.sin(3 * angle + phase)
-              + 0.115 * math.sin(5 * angle - phase * 1.7)
-              + 0.07 * math.sin(9 * angle + phase * 2.8))
-    distance = math.hypot(dx / rx, dy / ry)
-    return distance <= ripple
+    return math.hypot(dx / rx, dy / ry) <= blob_radius(angle, phase)
 
 
-def make_masks():
-    forests, lakes = set(), set()
-    river = river_tiles()
-    for ty in range(GRID_H):
-        for tx in range(GRID_W):
-            x, y = tile_to_world(tx, ty)
-            tile = (tx, ty)
-            if any(inside_blob(x, y, patch) for patch in LAKE_PATCHES):
-                lakes.add(tile)
-                continue
-            if tile in river:
-                continue
-            if any(inside_blob(x, y, patch) for patch in FOREST_PATCHES):
-                forests.add(tile)
-    # Fixed river path never overlaps lakes: lakes remain separate obstacles.
-    river.difference_update(lakes)
-    # Areas around bases must remain playable and clearly visible.
+def lake_outline(patch, samples=96):
+    """Smooth closed shoreline in world coordinates (not a circle per tile)."""
+    cx, cy, rx, ry, phase = patch
+    result = []
+    for i in range(samples):
+        angle = math.tau * i / samples
+        radius = blob_radius(angle, phase)
+        result.append((cx + math.cos(angle) * rx * radius,
+                       cy + math.sin(angle) * ry * radius))
+    return tuple(result)
+
+
+def terrain_masks():
+    forest, lakes = set(), set()
+    for patch in FOREST_PATCHES:
+        cx, cy, rx, ry, _ = patch
+        for ty in range(max(0, int((cy - ry * 1.5) // GRID_SIZE)),
+                        min(GRID_H, math.ceil((cy + ry * 1.5) / GRID_SIZE))):
+            for tx in range(max(0, int((cx - rx * 1.5) // GRID_SIZE)),
+                            min(GRID_W, math.ceil((cx + rx * 1.5) / GRID_SIZE))):
+                if inside_blob(*tile_to_world(tx, ty), patch):
+                    forest.add((tx, ty))
+    for patch in LAKE_PATCHES:
+        cx, cy, rx, ry, _ = patch
+        for ty in range(max(0, int((cy - ry * 1.5) // GRID_SIZE)),
+                        min(GRID_H, math.ceil((cy + ry * 1.5) / GRID_SIZE))):
+            for tx in range(max(0, int((cx - rx * 1.5) // GRID_SIZE)),
+                            min(GRID_W, math.ceil((cx + rx * 1.5) / GRID_SIZE))):
+                if inside_blob(*tile_to_world(tx, ty), patch):
+                    lakes.add((tx, ty))
+    forest.difference_update(lakes)
     for bx, by in BASE_TILES:
         for tx in range(bx - 1, bx + 2):
             for ty in range(by - 1, by + 2):
-                forests.discard((tx, ty))
-    return frozenset(forests), frozenset(lakes), frozenset(river)
+                forest.discard((tx, ty))
+    return frozenset(forest), frozenset(lakes)
 
 
-FOREST_TILES, LAKE_TILES, RIVER_TILES = make_masks()
+FOREST_TILES, LAKE_TILES = terrain_masks()
+
+
+def edge_river(source, destination, axis):
+    """One-cell-wide four-connected path from world edge into a lake.
+
+    axis='y' steps down from north, axis='x' steps right from west.
+    Sideways adjustment is bounded to one tile per primary step.
+    """
+    sx, sy = source
+    gx, gy = destination
+    primary_start = sy if axis == "y" else sx
+    primary_goal = gy if axis == "y" else gx
+    cross_start = sx if axis == "y" else sy
+    cross_goal = gx if axis == "y" else gy
+    cross = cross_start
+    path = []
+    for primary in range(primary_start, primary_goal + 1):
+        progress = (primary - primary_start) / max(1, primary_goal - primary_start)
+        sway = 3 * math.sin(math.pi * progress) * math.sin(4.5 * math.pi * progress)
+        desired = round(cross_start + (cross_goal - cross_start) * progress + sway)
+        cross += max(-1, min(1, desired - cross))
+        tile = (cross, primary) if axis == "y" else (primary, cross)
+        if tile in LAKE_TILES:
+            break
+        path.append(tile)
+    else:
+        # A river must never end in nowhere. Routes are chosen to intersect a
+        # destination lake and tests guard against accidental layout edits.
+        raise ValueError("Edge-fed river failed to reach a lake")
+    if not path:
+        raise ValueError("River must contain passable water before its lake")
+    return tuple(path)
+
+
+# North edge to central lake, west edge to western lake. Both are navigable
+# only at river speed except where roads create existing bridges.
+RIVER_PATHS = (
+    edge_river((52, 0), (52, 37), "y"),
+    edge_river((0, 53), (31, 53), "x"),
+)
+RIVER_TILES = frozenset(tile for path in RIVER_PATHS for tile in path)
+# Rivers cut through forest, but do not alter the lake collision footprint.
+FOREST_TILES = frozenset(FOREST_TILES - RIVER_TILES)
 WALL_TILES = frozenset((x // GRID_SIZE, y // GRID_SIZE)
                        for x, y, _, _ in WALL_SECTIONS)
+ACTIVE_WALL_TILES = frozenset(
+    (tx, ty) for tx, ty in WALL_TILES
+    if (tx, ty) not in LAKE_TILES and not any(
+        (tx + dx, ty + dy) in FOREST_TILES
+        for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+)
 
 
 def neighbors(tile):
@@ -102,10 +165,7 @@ def neighbors(tile):
 
 
 def route_to(start, goal, existing):
-    """A* grid roads from flag to flag, reusing established routes.
-
-    The pathfinder can cross one-cell rivers; road crossings become bridges.
-    """
+    """A* shortest useful road to base, weighted for terrain and reuse."""
     frontier = [(0.0, 0, start)]
     cost = {start: 0.0}
     previous = {}
@@ -116,62 +176,48 @@ def route_to(start, goal, existing):
             path = [tile]
             while path[-1] != start:
                 path.append(previous[path[-1]])
-            path.reverse()
-            return path
+            return tuple(reversed(path))
         for nxt in neighbors(tile):
-            if nxt in LAKE_TILES or nxt in WALL_TILES:
+            if nxt in LAKE_TILES or nxt in ACTIVE_WALL_TILES:
                 continue
-            weight = (2.3 if nxt in RIVER_TILES else
-                      2.6 if nxt in FOREST_TILES else
+            weight = (2.8 if nxt in RIVER_TILES else
+                      2.2 if nxt in FOREST_TILES else
                       0.35 if nxt in existing else 1.0)
-            tentative = cost[tile] + weight
-            if tentative < cost.get(nxt, float("inf")):
-                cost[nxt] = tentative
+            next_cost = cost[tile] + weight
+            if next_cost < cost.get(nxt, float("inf")):
+                cost[nxt] = next_cost
                 previous[nxt] = tile
                 serial += 1
                 distance = abs(nxt[0] - goal[0]) + abs(nxt[1] - goal[1])
-                heapq.heappush(frontier, (tentative + distance * 0.35, serial, nxt))
+                heapq.heappush(frontier, (next_cost + 0.35 * distance, serial, nxt))
     raise ValueError(f"No road route from {start} to {goal}")
 
 
-def choose_crossing(target_row):
-    """Find a safe crossing with dry road approach on each bank."""
-    for ty in sorted(range(6, 32), key=lambda row: abs(row - target_row)):
-        tile = next((cell for cell in RIVER_TILES if cell[1] == ty), None)
-        if tile is None:
-            continue
-        tx, _ = tile
-        # Avoid pillboxes, walls and lakes in the immediate bridge corridor.
-        approach = {(x, ty) for x in range(tx - 2, tx + 3)}
-        if not (approach & (WALL_TILES | LAKE_TILES)) and all(
-                0 <= x < GRID_W for x, _ in approach):
-            return tile
-    raise ValueError("No safe bridge corridor")
-
-
 def make_roads():
-    # Route flags on both banks through two explicit strategic crossings,
-    # and preserve connectivity at every river intersection.
-    bridges = (choose_crossing(12), choose_crossing(25))
-    routes = set(BASE_TILES)
-    anchor = BASE_TILES[0]
-    for crossing in bridges:
+    roads = set(BASE_TILES)
+    # First establish crossing links across both rivers so road bridges are
+    # useful strategic objectives even on a large map.
+    crossing_targets = [(52, 22), (20, 53)]
+    for ideal in crossing_targets:
+        crossing = min(RIVER_TILES,
+                       key=lambda p: abs(p[0] - ideal[0]) + abs(p[1] - ideal[1]))
         cx, cy = crossing
-        # Physically connect roadbed both sides of the river.
-        routes.update({(cx - 1, cy), crossing, (cx + 1, cy)})
-        for approach in ((cx - 2, cy), (cx + 2, cy)):
-            routes.update(route_to(approach, anchor, routes))
-        anchor = (cx + 1, cy)
-    for site in BASE_TILES:
-        routes.update(route_to(site, anchor, routes))
-    # Every road crossing a river is a working bridge, not a slow ford.
-    return frozenset(routes), frozenset(routes & RIVER_TILES)
+        # Add approaches on both sides of the narrow water.
+        if crossing in RIVER_PATHS[0]:
+            approach = [(cx - 2, cy), (cx + 2, cy)]
+        else:
+            approach = [(cx, cy - 2), (cx, cy + 2)]
+        roads.add(crossing)
+        for bank in approach:
+            roads.update(route_to(bank, BASE_TILES[0], roads))
+    # Connect every flag to the existing road spine.
+    for site in BASE_TILES[1:]:
+        roads.update(route_to(site, BASE_TILES[0], roads))
+    roads.update(BASE_TILES)
+    return frozenset(roads), frozenset(roads & RIVER_TILES)
 
 
 ROAD_TILES, BRIDGE_TILES = make_roads()
-
-# Compatibility aliases for older code that imports these names. These are
-# now grid tiles rather than rectangular bounds.
 FORESTS = FOREST_TILES
 WATER = LAKE_TILES
 RIVERS = RIVER_TILES
@@ -183,7 +229,7 @@ def tile_at(x, y):
 
 
 def water_at(x, y, radius=0):
-    """Lake collision tests against impassable lake tiles only."""
+    """Deep lake tiles block tanks; narrow rivers remain fordable."""
     cx, cy = tile_at(x, y)
     reach = max(0, math.ceil(radius / GRID_SIZE) + 1)
     for ty in range(cy - reach, cy + reach + 1):
@@ -216,19 +262,11 @@ def terrain_at(x, y):
     return "grass"
 
 
-TERRAIN_SPEED = {
-    "grass": 1.0, "road": 1.20, "forest": 0.65,
-    "river": 0.18, "bridge": 1.20, "water": 0.0,
-}
+TERRAIN_SPEED = {"grass": 1.0, "road": 1.20, "forest": 0.65,
+                 "river": 0.18, "bridge": 1.20, "water": 0.0}
 
-# Existing static walls crossing woodland are retired (including those
-# touching tree-canopy neighbours), leaving forest boundaries undisturbed.
-# Clients and server derive the same wall HP array from the same map.
+
 def initial_wall_hp():
-    hp = []
-    for x, y, _, _ in WALL_SECTIONS:
-        tx, ty = x // GRID_SIZE, y // GRID_SIZE
-        forest_nearby = any((tx + dx, ty + dy) in FOREST_TILES
-                            for dx in (-1, 0, 1) for dy in (-1, 0, 1))
-        hp.append(0 if forest_nearby or (tx, ty) in LAKE_TILES else 4)
-    return hp
+    """Retire prebuilt walls intersecting tree canopy or lakes."""
+    return [0 if (x // GRID_SIZE, y // GRID_SIZE) not in ACTIVE_WALL_TILES
+            else 4 for x, y, _, _ in WALL_SECTIONS]

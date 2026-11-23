@@ -6,7 +6,8 @@ import socket
 import time
 
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
-                    WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, wall_at)
+                    WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, wall_at,
+                    wrap_x, shortest_dx, wrapped_distance, nearest_x)
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
                      water_at, initial_wall_hp, RIVER_TILES, BRIDGE_TILES, ROAD_TILES,
                      LAKE_TILES, FOREST_TILES, tile_at)
@@ -218,10 +219,10 @@ class GameServer:
                                 clamp(difference, -TURRET_SPEED * dt, TURRET_SPEED * dt)) % (2 * math.pi)
             dx = math.cos(player["angle"]) * player["speed"] * dt
             dy = math.sin(player["angle"]) * player["speed"] * dt
-            nx = clamp(player["x"] + dx, TANK_RADIUS, WORLD_W - TANK_RADIUS)
+            nx = wrap_x(player["x"] + dx)
             ny = clamp(player["y"] + dy, TANK_RADIUS, WORLD_H - TANK_RADIUS)
             if not self.blocked(nx, player["y"]):
-                player["x"] = nx
+                player["x"] = wrap_x(nx)
             else:
                 player["speed"] = 0.0
             if not self.blocked(player["x"], ny):
@@ -233,12 +234,12 @@ class GameServer:
             if command.get("fire") and player["reload"] <= 0 and player["ammo"] >= 1:
                 angle = player["turret"]
                 self.alert_pillboxes(player, angle)
-                self.bullets.append({"x": player["x"] + math.cos(angle) * 29,
+                self.bullets.append({"x": wrap_x(player["x"] + math.cos(angle) * 29),
                                      "y": player["y"] + math.sin(angle) * 29,
                                      "vx": math.cos(angle) * SHELL_SPEED,
                                      "vy": math.sin(angle) * SHELL_SPEED,
                                      "life": SHELL_LIFE, "owner": player_id})
-                self.event("fire", player["x"] + math.cos(angle) * 34,
+                self.event("fire", wrap_x(player["x"] + math.cos(angle) * 34),
                            player["y"] + math.sin(angle) * 34, angle=angle)
                 player["reload"] = RELOAD
                 player["ammo"] -= 1
@@ -247,28 +248,28 @@ class GameServer:
         remaining = []
         for bullet in self.bullets:
             old_x, old_y = bullet["x"], bullet["y"]
-            bullet["x"] += bullet["vx"] * dt
+            bullet["x"] = wrap_x(bullet["x"] + bullet["vx"] * dt)
             bullet["y"] += bullet["vy"] * dt
             bullet["life"] -= dt
-            if (bullet["life"] <= 0 or not 0 <= bullet["x"] <= WORLD_W
-                    or not 0 <= bullet["y"] <= WORLD_H):
+            if bullet["life"] <= 0 or not 0 <= bullet["y"] <= WORLD_H:
                 continue
             # Swept obstruction checks run in *travel order*, so a nearer
             # wall always blocks before deeper vegetation can absorb the shell.
+            end_x = old_x + shortest_dx(old_x, bullet["x"])
             obstruction = self.shell_obstruction(bullet, old_x, old_y,
-                                                  bullet["x"], bullet["y"])
+                                                  end_x, bullet["y"])
             if obstruction is not None:
                 kind, value, hit_x, hit_y = obstruction
                 if kind == "wall":
                     self.wall_hp[value] -= 1
-                    self.event("impact", hit_x, hit_y)
+                    self.event("impact", wrap_x(hit_x), hit_y)
                     if self.wall_hp[value] == 0:
                         wx, wy, ww, wh = WALL_SECTIONS[value]
                         self.event("wall_break", wx + ww / 2, wy + wh / 2)
                 elif kind == "built":
                     wall = self.built_walls[value]
                     wall["hp"] -= 1
-                    self.event("impact", hit_x, hit_y)
+                    self.event("impact", wrap_x(hit_x), hit_y)
                     if wall["hp"] <= 0:
                         del self.built_walls[value]
                         wx, wy = tile_to_world(*value)
@@ -281,11 +282,11 @@ class GameServer:
                 for box in self.pillboxes:
                     if box["hp"] <= 0:
                         continue
-                    dx = bullet["x"] - old_x
+                    dx = shortest_dx(old_x, bullet["x"])
                     dy = bullet["y"] - old_y
-                    t = clamp(((box["x"] - old_x) * dx + (box["y"] - old_y) * dy)
+                    t = clamp((shortest_dx(old_x, box["x"]) * dx + (box["y"] - old_y) * dy)
                               / max(0.0001, dx * dx + dy * dy), 0, 1)
-                    if ((old_x + t * dx - box["x"]) ** 2 +
+                    if ((shortest_dx(box["x"], wrap_x(old_x + t * dx))) ** 2 +
                             (old_y + t * dy - box["y"]) ** 2) <= 23 ** 2:
                         box["hp"] = max(0, box["hp"] - 25)
                         self.event("hit", box["x"], box["y"])
@@ -299,11 +300,11 @@ class GameServer:
                 if player["id"] == bullet["owner"] or player["respawn"] > 0:
                     continue
                 # Swept segment-circle closest point.
-                dx, dy = bullet["x"] - old_x, bullet["y"] - old_y
+                dx, dy = shortest_dx(old_x, bullet["x"]), bullet["y"] - old_y
                 length2 = dx * dx + dy * dy
-                t = clamp(((player["x"] - old_x) * dx + (player["y"] - old_y) * dy)
+                t = clamp((shortest_dx(old_x, player["x"]) * dx + (player["y"] - old_y) * dy)
                           / max(length2, 0.0001), 0, 1)
-                dist2 = (old_x + t * dx - player["x"]) ** 2 + (old_y + t * dy - player["y"]) ** 2
+                dist2 = shortest_dx(player["x"], wrap_x(old_x + t * dx)) ** 2 + (old_y + t * dy - player["y"]) ** 2
                 if dist2 <= (TANK_RADIUS + 4) ** 2:
                     self.event("hit", player["x"], player["y"])
                     if not player["god_mode"]:
@@ -337,12 +338,13 @@ class GameServer:
         tx, ty = tile_at(x, y)
         for ix in (tx - 1, tx, tx + 1):
             for iy in (ty - 1, ty, ty + 1):
-                index = self.wall_tile_index.get((ix, iy))
+                index = self.wall_tile_index.get((ix % (WORLD_W // GRID_SIZE), iy))
                 if index is not None and self.wall_hp[index] > 0:
                     left, top = ix * GRID_SIZE, iy * GRID_SIZE
-                    px = clamp(x, left, left + GRID_SIZE)
+                    near_x = nearest_x(wrap_x(x), left + GRID_SIZE / 2)
+                    px = clamp(near_x, left, left + GRID_SIZE)
                     py = clamp(y, top, top + GRID_SIZE)
-                    if (x - px) ** 2 + (y - py) ** 2 < radius ** 2:
+                    if (near_x - px) ** 2 + (y - py) ** 2 < radius ** 2:
                         return "wall", index
         if (tx, ty) in self.built_walls:
             return "built", (tx, ty)
@@ -357,7 +359,7 @@ class GameServer:
         for box in self.pillboxes:
             if box["hp"] <= 0 or box["owner"] == player["id"]:
                 continue
-            dx, dy = box["x"] - player["x"], box["y"] - player["y"]
+            dx, dy = shortest_dx(player["x"], box["x"]), box["y"] - player["y"]
             distance = math.hypot(dx, dy)
             if not PILLBOX_RANGE <= distance < PILLBOX_DETECTION_RANGE:
                 continue
@@ -375,7 +377,7 @@ class GameServer:
         previous = bullet.get("forest_last_tile")
         depth = bullet.get("forest_depth", 0)
         for x, y in self.sample_segment(x0, y0, x1, y1):
-            obstruction = self.wall_obstruction_at(x, y)
+            obstruction = self.wall_obstruction_at(wrap_x(x), y)
             if obstruction:
                 return obstruction[0], obstruction[1], x, y
             tile = tile_at(x, y)
@@ -390,10 +392,11 @@ class GameServer:
 
     def can_see(self, x0, y0, x1, y1):
         """Solid masonry and more than two forest cells break turret LOS."""
+        x1 = x0 + shortest_dx(x0, x1)
         previous = None
         depth = 0
         for x, y in self.sample_segment(x0, y0, x1, y1):
-            if self.wall_obstruction_at(x, y):
+            if self.wall_obstruction_at(wrap_x(x), y):
                 return False
             tile = tile_at(x, y)
             if tile in FOREST_TILES and tile != previous:
@@ -404,6 +407,7 @@ class GameServer:
         return True
 
     def built_wall_hit(self, x0, y0, x1, y1):
+        x1 = x0 + shortest_dx(x0, x1)
         # Same swept collision granularity as pre-existing walls.
         distance = math.hypot(x1 - x0, y1 - y0)
         steps = max(1, math.ceil(distance / 5))
@@ -414,7 +418,7 @@ class GameServer:
                 left, top = tile[0] * GRID_SIZE, tile[1] * GRID_SIZE
                 px = clamp(x, left, left + GRID_SIZE)
                 py = clamp(y, top, top + GRID_SIZE)
-                if (x - px) ** 2 + (y - py) ** 2 < 9:
+                if (shortest_dx(x, px)) ** 2 + (y - py) ** 2 < 9:
                     return tile
         return None
 
@@ -439,9 +443,9 @@ class GameServer:
         original_wall = next((i for i in wall_indices if self.wall_hp[i] > 0), None)
         built_wall = self.built_walls.get(tile)
         box = next((b for b in self.pillboxes if b["hp"] > 0
-                    and (b["x"] - x) ** 2 + (b["y"] - y) ** 2 < 25 ** 2), None)
+                    and shortest_dx(x, b["x"]) ** 2 + (b["y"] - y) ** 2 < 25 ** 2), None)
         player_occupies = any(p["respawn"] <= 0
-                             and abs(p["x"] - x) < 40 and abs(p["y"] - y) < 40
+                             and abs(shortest_dx(x, p["x"])) < 40 and abs(p["y"] - y) < 40
                              for p in self.players.values())
         if part in ("wall", "pillbox"):
             if (blocked_build_terrain(tile, part) or nearby_forest(tile)
@@ -503,23 +507,23 @@ class GameServer:
         return respond(True, part.upper() + " COMPLETE")
 
     def blocked(self, x, y):
-        if overlaps_wall(x, y, TANK_RADIUS, self.wall_hp) or water_at(x, y, TANK_RADIUS):
+        if (overlaps_wall(wrap_x(x), y, TANK_RADIUS, self.wall_hp)
+                or water_at(x, y, TANK_RADIUS)):
             return True
         for (tx, ty), wall in self.built_walls.items():
             left, top = tx * GRID_SIZE, ty * GRID_SIZE
             px, py = clamp(x, left, left + GRID_SIZE), clamp(y, top, top + GRID_SIZE)
-            if (x - px) ** 2 + (y - py) ** 2 < TANK_RADIUS ** 2:
+            if shortest_dx(px, x) ** 2 + (y - py) ** 2 < TANK_RADIUS ** 2:
                 return True
-            return True
         return any(box["hp"] > 0 and
-                   (box["x"] - x) ** 2 + (box["y"] - y) ** 2 < (TANK_RADIUS + 22) ** 2
+                   shortest_dx(x, box["x"]) ** 2 + (box["y"] - y) ** 2 < (TANK_RADIUS + 22) ** 2
                    for box in self.pillboxes)
 
     def update_bases(self, dt):
         for base in self.bases:
             nearby = [p for p in self.players.values()
                       if p["respawn"] <= 0 and
-                      math.hypot(p["x"] - base["x"], p["y"] - base["y"]) <= BASE_RADIUS]
+                      wrapped_distance(p["x"], p["y"], base["x"], base["y"]) <= BASE_RADIUS]
             # No captures when contested, and no instant ownership flips.
             if len(nearby) != 1:
                 base["capturing"] = 0
@@ -554,8 +558,8 @@ class GameServer:
             for player in self.players.values():
                 if player["respawn"] > 0 or player["id"] == box["owner"]:
                     continue
-                distance = math.hypot(player["x"] - box["x"],
-                                      player["y"] - box["y"])
+                distance = wrapped_distance(player["x"], player["y"],
+                                            box["x"], box["y"])
                 if (distance < PILLBOX_DETECTION_RANGE and
                         self.can_see(box["x"], box["y"],
                                      player["x"], player["y"])):
@@ -569,7 +573,7 @@ class GameServer:
                 visible, key=lambda match:
                 (0 if match[1]["id"] == retaliation else 1, match[0]))
             desired = math.atan2(target["y"] - box["y"],
-                                 target["x"] - box["x"])
+                                 shortest_dx(box["x"], target["x"]))
             current = box.get("angle", 0.0)
             difference = (desired - current + math.pi) % (2 * math.pi) - math.pi
             box["angle"] = (current + clamp(difference,
@@ -585,7 +589,7 @@ class GameServer:
                     or abs(remaining) > PILLBOX_AIM_TOLERANCE):
                 continue
             angle = box["angle"]
-            self.bullets.append({"x": box["x"] + math.cos(angle) * 24,
+            self.bullets.append({"x": wrap_x(box["x"] + math.cos(angle) * 24),
                                  "y": box["y"] + math.sin(angle) * 24,
                                  "vx": math.cos(angle) * SHELL_SPEED,
                                  "vy": math.sin(angle) * SHELL_SPEED,

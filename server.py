@@ -6,11 +6,12 @@ import socket
 import time
 
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
-                    WORLD_W, clamp, overlaps_wall, segment_hits_wall)
+                    WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
 
 MOVE_SPEED = 195.0
 REVERSE_SPEED = 125.0
 TURN_SPEED = 2.9
+TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
 RELOAD = 0.42
@@ -29,6 +30,7 @@ class GameServer:
         self.players = {}
         self.addresses = {}
         self.bullets = []
+        self.wall_hp = [WALL_MAX_HP] * len(WALL_SECTIONS)
         self.next_id = 1
         self.tick = 0
         self.events = []
@@ -53,7 +55,7 @@ class GameServer:
         i = (player["id"] - 1) % len(SPAWNS)
         player.update(x=float(SPAWNS[i][0]), y=float(SPAWNS[i][1]),
                       angle=0.0 if i % 2 == 0 else math.pi,
-                      turret=0.0, hp=100, reload=0.0, respawn=0.0)
+                      turret=0.0 if i % 2 == 0 else math.pi, hp=100, reload=0.0, respawn=0.0)
 
     def handle(self, data, address):
         if len(data) > 1024:
@@ -128,16 +130,19 @@ class GameServer:
                 continue
             command = player["input"]
             player["angle"] = (player["angle"] + command.get("turn", 0) * TURN_SPEED * dt) % (2 * math.pi)
-            player["turret"] = command.get("aim", player["turret"])
+            desired = command.get("aim", player["turret"])
+            difference = (desired - player["turret"] + math.pi) % (2 * math.pi) - math.pi
+            player["turret"] = (player["turret"] +
+                                clamp(difference, -TURRET_SPEED * dt, TURRET_SPEED * dt)) % (2 * math.pi)
             throttle = command.get("move", 0)
             speed = MOVE_SPEED if throttle > 0 else REVERSE_SPEED
             vx = math.cos(player["angle"]) * throttle * speed * dt
             vy = math.sin(player["angle"]) * throttle * speed * dt
             nx = clamp(player["x"] + vx, TANK_RADIUS, WORLD_W - TANK_RADIUS)
             ny = clamp(player["y"] + vy, TANK_RADIUS, WORLD_H - TANK_RADIUS)
-            if not overlaps_wall(nx, player["y"], TANK_RADIUS):
+            if not overlaps_wall(nx, player["y"], TANK_RADIUS, self.wall_hp):
                 player["x"] = nx
-            if not overlaps_wall(player["x"], ny, TANK_RADIUS):
+            if not overlaps_wall(player["x"], ny, TANK_RADIUS, self.wall_hp):
                 player["y"] = ny
             player["reload"] = max(0.0, player["reload"] - dt)
             if command.get("fire") and player["reload"] <= 0:
@@ -159,8 +164,14 @@ class GameServer:
             if (bullet["life"] <= 0 or not 0 <= bullet["x"] <= WORLD_W
                     or not 0 <= bullet["y"] <= WORLD_H):
                 continue
-            if segment_hits_wall(old_x, old_y, bullet["x"], bullet["y"]):
+            section = segment_hits_wall(old_x, old_y, bullet["x"], bullet["y"],
+                                        self.wall_hp)
+            if section is not None:
+                self.wall_hp[section] -= 1
                 self.event("impact", bullet["x"], bullet["y"])
+                if self.wall_hp[section] == 0:
+                    wx, wy, ww, wh = WALL_SECTIONS[section]
+                    self.event("wall_break", wx + ww / 2, wy + wh / 2)
                 continue
             hit = False
             for player in self.players.values():
@@ -198,6 +209,7 @@ class GameServer:
                    for b in self.bullets]
         message = {"type": "state", "tick": self.tick, "players": players,
                    "bullets": bullets,
+                   "walls": self.wall_hp,
                    "events": [e for e in self.events if self.tick - e["tick"] <= 30]}
         for address in list(self.addresses):
             self.transmit(address, message)

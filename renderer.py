@@ -349,7 +349,7 @@ def particles(surface, camera, effects):
 
 
 def minimap(surface, players, local_id, camera, bases=(), pillboxes=(),
-            built_walls=(), built_bridges=()):
+            built_walls=(), built_bridges=(), built_roads=()):
     radar_scale = min(410 / WORLD_W, 285 / WORLD_H)
     ww, hh = round(WORLD_W * radar_scale), round(WORLD_H * radar_scale)
     left, top = RENDER_W - ww - 36, 144
@@ -374,6 +374,12 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=(),
                        round(WORLD_VIEW_W * radar_scale),
                        round(WORLD_VIEW_H * radar_scale))
     pygame.draw.rect(surface, (92, 117, 106), rect, 2)
+    for tx, ty in built_roads:
+        pygame.draw.rect(surface, (166, 138, 101),
+                         (round(left + tx * GRID_SIZE * radar_scale),
+                          round(top + ty * GRID_SIZE * radar_scale),
+                          max(2, round(GRID_SIZE * radar_scale)),
+                          max(2, round(GRID_SIZE * radar_scale))))
     for wall in built_walls:
         pygame.draw.rect(surface, (210, 176, 116),
                          (round(left + wall["tx"] * GRID_SIZE * radar_scale),
@@ -401,8 +407,8 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=(),
 def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
                fonts, host, port, connected, status, bases=(), pillboxes=(),
                built_walls=(), built_bridges=(), build_mode=False, build_part="wall",
-               hovered_tile=None, build_message=""):
-    ground(surface, camera, wall_hp)
+               hovered_tile=None, build_message="", built_roads=()):
+    ground(surface, camera, wall_hp, built_roads)
     # Dynamic structures are drawn above the static terrain.
     for tx, ty in built_bridges:
         x, y = point(tx * GRID_SIZE, ty * GRID_SIZE, camera)
@@ -503,16 +509,16 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
         tank(surface, p, camera, fonts["label"], local_id)
     particles(surface, camera, effects)
     minimap(surface, players, local_id, camera, bases, pillboxes,
-            built_walls, built_bridges)
+            built_walls, built_bridges, built_roads)
 
     panel = pygame.Surface((1430, 144), pygame.SRCALPHA)
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  EXPANDED WORLD v0.14", True, (235, 233, 208)),
+        "BOLO-LAN  /  ROAD CONSTRUCTION v0.15", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
-        (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  |  CLICK PLACE  |  B EXIT"
+        (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  6 ROAD  |  CLICK PLACE  |  B EXIT"
          if build_mode else
          f"HOST {host}:{port} | PLAYERS {len(players)} | WASD | FIRE | B BUILD | G GOD | M MUTE"),
         True, (191, 208, 195)), (40, RENDER_H - 92))

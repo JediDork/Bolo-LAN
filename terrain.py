@@ -5,35 +5,36 @@ Only the server decides collision, speed and captures.
 """
 import math
 
-# Rectangles (x, y, width, height). Water is impassable, forest slows tanks.
+from shared import GRID_SIZE, tile_to_world
+
+# Every region is a rectangle composed of complete 50x50 world tiles.
+# This is the canonical map used by both collision and visual rendering.
 WATER = (
-    (950, 910, 380, 145),
-    (2140, 915, 290, 160),
-    (120, 760, 260, 140),
+    (950, 900, 400, 150),
+    (2150, 900, 300, 200),
+    (100, 750, 300, 150),
 )
 ROADS = (
-    (85, 125, 2400, 72),
-    (85, 1680, 2400, 70),
-    (1260, 125, 75, 1625),
-    (110, 935, 2390, 70),
+    (100, 100, 2400, 100),
+    (100, 1650, 2400, 100),
+    (1250, 100, 100, 1650),
+    (100, 900, 2400, 100),
 )
 FORESTS = (
-    (380, 620, 360, 235),
-    (1560, 270, 340, 210),
-    (380, 1400, 290, 220),
-    (1890, 1280, 310, 210),
+    (400, 600, 350, 250),
+    (1550, 250, 350, 200),
+    (400, 1400, 300, 200),
+    (1900, 1250, 300, 250),
 )
 
-# Each base has a refill and capture zone. Neutral until occupied.
-BASE_SITES = (
-    (180, 335), (2410, 1470), (2320, 260), (240, 1570),
-    (1270, 430), (1270, 1540),
-)
-# Pillboxes begin neutral/hostile, and can be destroyed.
-PILLBOX_SITES = (
-    (770, 1050), (1690, 990), (1380, 740), (1060, 1280),
-)
+# A site is always at the CENTER of its 50x50 construction tile.
+BASE_TILES = ((3, 6), (48, 29), (46, 5), (4, 31), (25, 8), (25, 30))
+PILLBOX_TILES = ((15, 21), (33, 19), (27, 14), (21, 25))
+BASE_SITES = tuple(tile_to_world(x, y) for x, y in BASE_TILES)
+PILLBOX_SITES = tuple(tile_to_world(x, y) for x, y in PILLBOX_TILES)
 
+assert all(all(value % GRID_SIZE == 0 for value in region)
+           for region in WATER + ROADS + FORESTS)
 
 def in_rect(x, y, rect, margin=0):
     rx, ry, width, height = rect

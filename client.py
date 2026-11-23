@@ -10,7 +10,7 @@ import time
 
 import pygame
 
-from shared import PORT, WALLS, WORLD_H, WORLD_W
+from shared import PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W
 from effects import Effects, draw_details, draw_minimap
 
 WIDTH, HEIGHT = 1200, 760
@@ -75,6 +75,14 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (19, 29, 28), points)
     pygame.draw.polygon(surface, color, points, 0)
     pygame.draw.polygon(surface, (20, 32, 31), points, 2)
+    # High contrast forward-direction chevron fixed to the HULL (not turret).
+    # Its broad tip remains visible even when the turret points backwards.
+    arrow = []
+    for forward, side in ((25, 0), (9, -10), (13, 0), (9, 10)):
+        arrow.append((int(x + ca * forward - sa * side),
+                      int(y + sa * forward + ca * side)))
+    pygame.draw.polygon(surface, (255, 227, 91), arrow)
+    pygame.draw.polygon(surface, (35, 36, 24), arrow, 2)
     # Two animated-looking tread rails, oriented with hull.
     for side in (-1, 1):
         rail = []
@@ -98,7 +106,7 @@ def tank(surface, player, camera, font, local_id):
     surface.blit(label, (x - label.get_width() // 2, y - 45))
 
 
-def draw_ground(surface, camera):
+def draw_ground(surface, camera, wall_hp):
     surface.fill(BG)
     grid = 100
     start_x = int(camera[0] // grid) * grid
@@ -110,11 +118,38 @@ def draw_ground(surface, camera):
         y = int(wy - camera[1])
         pygame.draw.line(surface, (51, 91, 67), (0, y), (WIDTH, y), 1)
     draw_details(surface, camera, WIDTH, HEIGHT)
-    for wx, wy, ww, wh in WALLS:
-        rect = pygame.Rect(wx - camera[0], wy - camera[1], ww, wh)
-        pygame.draw.rect(surface, (83, 83, 74), rect)
-        pygame.draw.rect(surface, (127, 131, 111), rect.inflate(-8, -8))
-        pygame.draw.rect(surface, (30, 46, 42), rect, 3)
+    for index, (wx, wy, ww, wh) in enumerate(WALL_SECTIONS):
+        hp = wall_hp[index] if index < len(wall_hp) else WALL_MAX_HP
+        if hp <= 0:
+            continue
+        rect = pygame.Rect(int(wx - camera[0]), int(wy - camera[1]), ww, wh)
+        if not rect.colliderect(surface.get_rect()):
+            continue
+        damage = WALL_MAX_HP - hp
+        # Increasingly dark/cracked masonry as each shell strikes.
+        tones = ((121, 127, 112), (109, 110, 100),
+                 (91, 88, 82), (72, 66, 62))
+        pygame.draw.rect(surface, (38, 45, 41), rect)
+        pygame.draw.rect(surface, tones[damage], rect.inflate(-5, -5))
+        pygame.draw.rect(surface, (38, 47, 42), rect, 2)
+        if damage:
+            # Deterministic fracture patterns: all clients see the same cracks.
+            center_x, center_y = rect.center
+            crack_color = (42, 44, 43)
+            for crack in range(damage * 3):
+                offset = ((index * 17 + crack * 19) % 31) - 15
+                cx = center_x + offset
+                cy = center_y + ((index * 13 + crack * 23) % 27) - 13
+                cx = max(rect.left + 4, min(rect.right - 4, cx))
+                cy = max(rect.top + 4, min(rect.bottom - 4, cy))
+                end_x = max(rect.left + 4, min(rect.right - 4, cx + (10 if crack % 2 else -11)))
+                end_y = max(rect.top + 4, min(rect.bottom - 4, cy + (8 if crack % 3 else -9)))
+                pygame.draw.line(surface, crack_color, (cx, cy),
+                                 (end_x, end_y), 1 + (damage // 2))
+            # Dark chipped area becomes larger with consecutive impacts.
+            chip = pygame.Rect(center_x - 3 * damage, center_y - 3 * damage,
+                               6 * damage, 6 * damage)
+            pygame.draw.ellipse(surface, (52, 51, 48), chip)
     bounds = pygame.Rect(-camera[0], -camera[1], WORLD_W, WORLD_H)
     pygame.draw.rect(surface, (199, 208, 168), bounds, 5)
 
@@ -143,7 +178,8 @@ def main(argv=None):
     heading = pygame.font.SysFont("consolas", 23, bold=True)
     clock = pygame.time.Clock()
     local_id = None
-    state = {"players": [], "bullets": [], "events": []}
+    state = {"players": [], "bullets": [], "events": [],
+             "walls": [WALL_MAX_HP] * len(WALL_SECTIONS)}
     effects = Effects()
     visual_players = {}
     last_event_id = 0
@@ -245,7 +281,7 @@ def main(argv=None):
                     effects.dust(moving["x"] - math.cos(a) * 20,
                                  moving["y"] - math.sin(a) * 20)
             dust_timer = 0.08
-        draw_ground(screen, camera)
+        draw_ground(screen, camera, state.get("walls", []))
         for bullet in state["bullets"]:
             bx, by = xy(bullet["x"], bullet["y"], camera)
             pygame.draw.circle(screen, (255, 170, 68), (bx, by), 6)
@@ -254,15 +290,18 @@ def main(argv=None):
             tank(screen, item, camera, font, local_id)
         effects.draw(screen, camera)
         draw_minimap(screen, list(visual_players.values()), local_id, camera, WIDTH, HEIGHT)
-        pygame.draw.rect(screen, (16, 30, 29), (0, 0, WIDTH, 56))
-        title = heading.render("BOLO-LAN  /  COMBAT PROTOTYPE v0.2", True, (235, 233, 208))
-        screen.blit(title, (15, 8))
-        info = font.render(f"HOST {host}:{args.port}  |  PLAYERS {len(state['players'])}  |  WASD MOVE  MOUSE AIM  CLICK FIRE",
+        # Compact bottom-left HUD leaves the *entire upper map edge* visible.
+        panel = pygame.Surface((715, 72), pygame.SRCALPHA)
+        panel.fill((16, 30, 29, 208))
+        screen.blit(panel, (8, HEIGHT - 81))
+        title = heading.render("BOLO-LAN  /  FIELD TEST v0.4", True, (235, 233, 208))
+        screen.blit(title, (20, HEIGHT - 75))
+        info = font.render(f"HOST {host}:{args.port} | PLAYERS {len(state['players'])} | WASD DRIVE | MOUSE AIM | CLICK FIRE",
                            True, (191, 208, 195))
-        screen.blit(info, (16, 34))
+        screen.blit(info, (20, HEIGHT - 46))
         if player:
             health = font.render(f"ARMOUR {player['hp']:3d}%     KILLS {player['score']}", True, (252, 245, 205))
-            screen.blit(health, (18, HEIGHT - 34))
+            screen.blit(health, (20, HEIGHT - 25))
         if local_id is None or now - last_snapshot > 3:
             status = "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST"
             label = heading.render(status, True, (255, 203, 110))

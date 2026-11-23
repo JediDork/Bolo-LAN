@@ -2,6 +2,19 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.8 — Construction grid and diesel engine
+
+- **Unified 50 × 50 world-unit construction grid** for all static world content.
+- Wall segments are now **exactly one grid cell** each; destroying one opens a predictable one-tile gap.
+- Roads, forests and water use grid-aligned rectangular tile regions, consistent between server collision and client rendering.
+- Base and pillbox origins sit on grid-cell centres, giving future builder placement and fortification planning a reliable coordinate system.
+- Decorative trees, grass and rock positions also use deterministic tile centres; grid lines remain visible over terrain.
+- **Tanks and projectiles remain continuously movable**; the grid constrains *construction and terrain*, not tank steering or ballistic movement.
+- Replaced the accelerating high-pitched engine sine tones with quieter, low-frequency **diesel-like exhaust thumps** (16/20/24 Hz) and subdued mechanical texture. Idle and rev layers crossfade with load, and **M** still mutes.
+- Added automated tests checking exact tile dimensions/placement and low-register engine sound layer settings.
+
+**Map compatibility:** The layout changes require all LAN clients and the host to use the new version. Existing match state is not migrated across executable restarts.
+
 ## Version 0.7 — Tank feel and defensive range tuning
 
 Changes based on multiplayer playtesting:

@@ -18,8 +18,8 @@ from construction import (BUILD_RANGE, BUILD_COOLDOWN, BUILD_COSTS,
                           valid_tile, in_build_range, blocked_build_terrain,
                           near_flag, nearby_forest)
 
-MOVE_SPEED = 125.0
-REVERSE_SPEED = 75.0
+MOVE_SPEED = 95.0
+REVERSE_SPEED = 55.0
 TURN_SPEED = 2.9
 ACCELERATION = 115.0        # World units per second squared
 BRAKE_ACCELERATION = 220.0  # Counter-throttle response
@@ -36,8 +36,8 @@ FOREST_PENETRATION_TILES = 2
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
-RELOAD = 0.60
-RELOAD_SOUND_AT = 0.19  # Mechanical breech closes shortly before firing is available
+RELOAD = 1.25
+RELOAD_SOUND_AT = 0.35  # Mechanical breech closes shortly before firing is available
 SPAWN_SAFE_RADIUS = 550
 SPAWN_PLAYER_DISTANCE = 450
 SPAWN_GRACE = 3.0
@@ -712,6 +712,7 @@ class GameServer:
                     "t": round(p["turret"], 3), "hp": p["hp"], "score": p["score"],
                     "dead": p["respawn"] > 0, "color": p["color"],
                     "speed": round(p["speed"], 1), "ammo": int(p["ammo"]),
+                    "reload": round(p["reload"], 3), "reload_duration": RELOAD,
                     "god_mode": p["god_mode"],
                     "material": round(p["material"], 1),
                     "spawn_grace": round(p.get("spawn_grace", 0), 1)}

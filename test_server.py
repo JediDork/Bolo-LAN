@@ -14,7 +14,8 @@ from display import viewport, to_logical
 from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
                      terrain_at, water_at, ROAD_TILES, LAKE_TILES,
                      FOREST_TILES, RIVER_TILES, BRIDGE_TILES,
-                     initial_wall_hp, neighbors, RIVER_PATHS, LAKE_PATCHES)
+                     initial_wall_hp, neighbors, RIVER_PATHS, LAKE_PATCHES,
+                     GRID_W, GRID_H)
 from construction import BUILD_RANGE, BUILD_COSTS, START_MATERIAL, MAX_MATERIAL
 
 
@@ -512,8 +513,8 @@ class ConstructionGridTests(unittest.TestCase):
             for tx, ty in tiles:
                 self.assertGreaterEqual(tx, 0)
                 self.assertGreaterEqual(ty, 0)
-                self.assertLess(tx, 52)
-                self.assertLess(ty, 38)
+                self.assertLess(tx, GRID_W)
+                self.assertLess(ty, GRID_H)
 
     def test_flags_are_connected_by_routed_road_network(self):
         passable = ROAD_TILES | RIVER_TILES

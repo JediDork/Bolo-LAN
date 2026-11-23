@@ -9,8 +9,8 @@ import pygame
 from audio import SAMPLE_RATE, _synth
 from engine_audio import engine_loop, engine_mix, ENGINE_RATES
 from effects import Effects
-from renderer import RENDER_H, RENDER_W, draw_frame, draw_road_network
-from shared import WALL_MAX_HP, WALL_SECTIONS
+from renderer import RENDER_H, RENDER_W, draw_frame, draw_road_network, point, ground
+from shared import WALL_MAX_HP, WALL_SECTIONS, WORLD_W
 
 
 class RenderTests(unittest.TestCase):
@@ -79,6 +79,18 @@ class RenderTests(unittest.TestCase):
                    [], [], None, Effects(), self.fonts,
                    "localhost", 50000, True, "",
                    built_roads=((6, 5), (7, 5), (8, 5)))
+
+    def test_camera_displays_both_sides_of_wrapped_planet(self):
+        camera = (WORLD_W - 220, 300)
+        west, _ = point(45, 400, camera)
+        east, _ = point(WORLD_W - 45, 400, camera)
+        self.assertGreater(west, east)
+        self.assertEqual(west - east, 90 * 2)
+        ground(self.surface, camera, [0] * len(WALL_SECTIONS))
+        # The terrain extends through the seam, with no black empty band.
+        for sx in (50, 350, 650, 1250):
+            self.assertNotEqual(tuple(self.surface.get_at((sx, 400))[:3]),
+                                (0, 0, 0))
 
     def test_engine_layers_are_complete_loop_buffers(self):
         for hz in ENGINE_RATES:

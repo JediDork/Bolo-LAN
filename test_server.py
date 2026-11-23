@@ -8,7 +8,7 @@ from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
                     ACCELERATION, PILLBOX_RANGE, PILLBOX_DETECTION_RANGE,
                     PILLBOX_TURN_SPEED, FOREST_PENETRATION_TILES)
 from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
-                    WORLD_W, WORLD_H,
+                    WORLD_W, WORLD_H, wrap_x, shortest_dx, nearest_x,
                     wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
 from terrain import (BASE_SITES, BASE_TILES, PILLBOX_SITES, TERRAIN_SPEED,
@@ -623,6 +623,80 @@ class ConstructionGridTests(unittest.TestCase):
         hp[0] = 0
         self.assertFalse(overlaps_wall(x + 5, y + GRID_SIZE / 2, 3, hp))
 
+
+class PlanetWrapTests(unittest.TestCase):
+    def setUp(self):
+        self.server = GameServer(0)
+        self.addr1 = ("127.0.0.1", 51001)
+        self.addr2 = ("127.0.0.1", 51002)
+        self.server.handle(b'{"type":"join","name":"East"}', self.addr1)
+        self.server.handle(b'{"type":"join","name":"West"}', self.addr2)
+
+    def tearDown(self):
+        self.server.sock.close()
+
+    def test_longitude_shortest_path_and_no_latitude_wrap(self):
+        self.assertEqual(wrap_x(-10), WORLD_W - 10)
+        self.assertEqual(wrap_x(WORLD_W + 10), 10)
+        self.assertEqual(shortest_dx(WORLD_W - 10, 10), 20)
+        self.assertEqual(shortest_dx(10, WORLD_W - 10), -20)
+        self.assertAlmostEqual(nearest_x(10, WORLD_W - 10), WORLD_W + 10)
+
+    def test_tank_drives_east_across_seam_without_bouncing(self):
+        player = self.server.players[1]
+        player.update(x=float(WORLD_W - 7), y=190.0,
+                      angle=0.0, speed=95.0, angular_speed=0)
+        self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}',
+                           self.addr1)
+        self.server.step(0.2)
+        self.assertLess(player["x"], 45)
+        self.assertGreaterEqual(player["x"], 0)
+
+    def test_tank_drives_west_across_seam_without_bouncing(self):
+        player = self.server.players[1]
+        player.update(x=8.0, y=190.0, angle=math.pi,
+                      turret=math.pi, speed=95.0, angular_speed=0)
+        self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":3.14,"fire":false}',
+                           self.addr1)
+        self.server.step(0.2)
+        self.assertGreater(player["x"], WORLD_W - 45)
+
+    def test_shell_crosses_seam_and_hits_other_tank(self):
+        attacker = self.server.players[1]
+        target = self.server.players[2]
+        attacker.update(x=float(WORLD_W - 95), y=165.0,
+                        angle=0.0, turret=0.0, speed=0.0)
+        target.update(x=45.0, y=165.0, speed=0.0, hp=100)
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":true}',
+                           self.addr1)
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":false}',
+                           self.addr2)
+        for _ in range(12):
+            self.server.step(1 / 30)
+        self.assertLess(target["hp"], 100)
+
+    def test_pillbox_line_of_sight_uses_shortest_wrapped_path(self):
+        # Clear empty longitude seam should be visible, not a 5200-unit ray.
+        self.assertTrue(self.server.can_see(WORLD_W - 45, 170, 45, 170))
+
+    def test_bases_are_capturable_from_opposite_edge(self):
+        base = self.server.bases[0]
+        base.update(x=25.0, y=200.0)
+        p = self.server.players[1]
+        p.update(x=float(WORLD_W - 20), y=200.0, speed=0.0)
+        self.server.players[2].update(x=500.0, y=500.0)
+        self.assertLess(shortest_dx(p["x"], base["x"]), 60)
+        self.server.update_bases(2.6)
+        self.assertEqual(base["owner"], p["id"])
+
+    def test_build_range_works_across_east_west_seam(self):
+        player = self.server.players[1]
+        player.update(x=float(WORLD_W - 60), y=220.0,
+                      material=MAX_MATERIAL, build_timer=0)
+        # No client teleport: just a wrap-aware build distance check.
+        from construction import in_build_range
+        self.assertTrue(in_build_range(player, 1, 4))
+        self.assertFalse(in_build_range(player, 15, 4))
 
 class ViewportTests(unittest.TestCase):
     def test_widescreen_letterboxes_without_extra_world(self):

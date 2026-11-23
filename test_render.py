@@ -9,7 +9,7 @@ import pygame
 from audio import SAMPLE_RATE, _synth
 from engine_audio import engine_loop, engine_mix, ENGINE_RATES
 from effects import Effects
-from renderer import RENDER_H, RENDER_W, draw_frame, draw_road_network, point, ground
+from renderer import RENDER_H, RENDER_W, draw_frame, draw_road_network, point, ground, tank
 from shared import WALL_MAX_HP, WALL_SECTIONS, WORLD_W
 
 
@@ -114,6 +114,23 @@ class RenderTests(unittest.TestCase):
                 self.assertGreater(len(sound), SAMPLE_RATE // 10)
                 self.assertEqual(len(sound) % 2, 0)
                 self.assertTrue(any(sound))
+
+    def test_local_tank_ring_indicates_ready_vs_reloading(self):
+        player = {"id": 1, "name": "T", "x": 150.0, "y": 150.0,
+                  "a": 0.0, "t": 0.0, "hp": 100, "dead": False,
+                  "color": (77, 151, 112), "speed": 0.0,
+                  "reload_duration": 1.25, "reload": 1.25}
+        field = pygame.Surface((450, 450))
+        field.fill((48, 80, 64))
+        tank(field, player, (0, 0), self.fonts["label"], 1)
+        top = (300, 238)
+        reloading = tuple(field.get_at(top)[:3])
+        player["reload"] = 0.0
+        field.fill((48, 80, 64))
+        tank(field, player, (0, 0), self.fonts["label"], 1)
+        ready = tuple(field.get_at(top)[:3])
+        self.assertNotEqual(reloading, ready)
+        self.assertEqual(ready, (107, 226, 131))
 
     def test_reload_sound_is_a_valid_mono_buffer(self):
         raw = _synth("reload")

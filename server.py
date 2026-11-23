@@ -120,13 +120,35 @@ class GameServer:
         return True
 
     def choose_spawn(self, player):
-        """Unclaimed flag first; random defensible ground once all are taken.
+        """Respawn on your own claimed flag; new/unlanded players use neutral.
 
-        Flag starts are balanced by shuffled selection, avoiding another tank
-        already occupying the objective. When flags are all owned, sample the
-        playable world and maximize separation from hostile guns and players.
+        Claimed territory takes precedence over expansion, including when all
+        flags are owned. A player without any flags may start on an unclaimed
+        objective, or on safe random ground when none are available.
         """
         player_id = player["id"]
+        owned = [base for base in self.bases if base["owner"] == player_id]
+        self.spawn_rng.shuffle(owned)
+        if owned:
+            for base in owned:
+                if self.is_safe_spawn(base["x"], base["y"], player_id,
+                                      strict=False):
+                    return base["x"], base["y"], "owned_flag"
+            # Keep a respawning player inside their OWN territory even if
+            # the flag centre is occupied. A safe nearby offset is preferable
+            # to stacking tanks on the same tile.
+            for base in owned:
+                for dx, dy in ((45, 0), (-45, 0), (0, 45), (0, -45),
+                               (35, 35), (-35, 35), (35, -35), (-35, -35)):
+                    x, y = wrap_x(base["x"] + dx), base["y"] + dy
+                    if self.is_safe_spawn(x, y, player_id, strict=False):
+                        return x, y, "owned_flag"
+            # In a fully contested base a guaranteed respawn on owned land
+            # is still preferable to spawning at a neutral/enemy objective.
+            # Existing spawn grace protects the tank briefly.
+            base = owned[0]
+            return base["x"], base["y"], "owned_flag"
+
         neutral = [base for base in self.bases if base["owner"] == 0]
         self.spawn_rng.shuffle(neutral)
         for base in neutral:

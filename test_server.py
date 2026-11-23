@@ -312,6 +312,41 @@ class GameServerTests(unittest.TestCase):
         self.assertTrue(self.server.build(p, "remove", *tile))
         self.assertNotIn(tile, self.server.built_bridges)
 
+    def test_ownership_prevents_enemy_dismantle(self):
+        p = self.server.players[1]
+        enemy = self.server.players[2]
+        tile = next(t for t in sorted(RIVER_TILES) if t not in BRIDGE_TILES)
+        x, y = tile_to_world(*tile)
+        p.update(x=float(x + 75), y=float(y + 75), speed=0)
+        enemy.update(x=float(x - 75), y=float(y + 75), speed=0)
+        self.assertTrue(self.server.build(p, "bridge", *tile))
+        self.assertEqual(self.server.bridge_owners[tile], p["id"])
+        self.assertFalse(self.server.build(enemy, "remove", *tile))
+        self.assertIn(tile, self.server.built_bridges)
+
+    def test_build_pillbox_and_repair_it(self):
+        p = self.server.players[1]
+        p["material"] = MAX_MATERIAL
+        chosen = None
+        for tx in range(5, 45):
+            for ty in range(5, 33):
+                x, y = tile_to_world(tx, ty)
+                p.update(x=float(x + 105), y=float(y + 80), speed=0)
+                if self.server.build(p, "pillbox", tx, ty):
+                    chosen = tx, ty
+                    break
+            if chosen:
+                break
+        self.assertIsNotNone(chosen)
+        x, y = tile_to_world(*chosen)
+        box = next(b for b in self.server.pillboxes
+                   if b["x"] == x and b["y"] == y)
+        self.assertEqual(box["owner"], p["id"])
+        box["hp"] = 50
+        p["build_timer"] = 0
+        self.assertTrue(self.server.build(p, "repair", *chosen))
+        self.assertEqual(box["hp"], 75)
+
     def test_builder_refuses_building_on_tank(self):
         p = self.server.players[1]
         tx, ty = world_to_tile(p["x"], p["y"])

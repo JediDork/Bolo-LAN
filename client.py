@@ -12,6 +12,7 @@ import pygame
 
 from shared import PORT, WALL_SECTIONS, WALL_MAX_HP, WORLD_H, WORLD_W
 from effects import Effects, draw_details, draw_minimap
+from display import viewport, to_logical
 
 WIDTH, HEIGHT = 1200, 760
 BG = (45, 82, 61)
@@ -172,8 +173,12 @@ def main(argv=None):
     print(f"Connecting to {addr[0]}:{addr[1]}")
     send(sock, addr, {"type": "join", "name": args.name})
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Bolo-LAN | Combat Prototype v0.2")
+    # Fullscreen uses monitor native resolution, but all gameplay is drawn into
+    # the exact same logical 1200x760 viewport on every machine.
+    display = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    view = viewport(*display.get_size(), WIDTH, HEIGHT)
+    screen = pygame.Surface((WIDTH, HEIGHT)).convert()
+    pygame.display.set_caption("Bolo-LAN | Field Test v0.4")
     font = pygame.font.SysFont("consolas", 16, bold=True)
     heading = pygame.font.SysFont("consolas", 23, bold=True)
     clock = pygame.time.Clock()
@@ -259,7 +264,7 @@ def main(argv=None):
         keys = pygame.key.get_pressed()
         movement = int(keys[pygame.K_w] or keys[pygame.K_UP]) - int(keys[pygame.K_s] or keys[pygame.K_DOWN])
         turn = int(keys[pygame.K_d] or keys[pygame.K_RIGHT]) - int(keys[pygame.K_a] or keys[pygame.K_LEFT])
-        mx, my = pygame.mouse.get_pos()
+        mx, my = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
         aim = math.atan2(my + camera[1] - player["y"], mx + camera[0] - player["x"]) if player else 0.0
         firing = bool(pygame.mouse.get_pressed()[0] or keys[pygame.K_SPACE])
         if local_id is not None and now - previous_input > 1 / 30:
@@ -306,6 +311,11 @@ def main(argv=None):
             status = "CONNECTING TO SERVER..." if local_id is None else "CONNECTION LOST"
             label = heading.render(status, True, (255, 203, 110))
             screen.blit(label, (WIDTH // 2 - label.get_width() // 2, HEIGHT // 2))
+        # Black letterboxing: widescreen and 4K users NEVER see more terrain.
+        display.fill((0, 0, 0))
+        left, top, draw_width, draw_height = view
+        scaled = pygame.transform.scale(screen, (draw_width, draw_height))
+        display.blit(scaled, (left, top))
         pygame.display.flip()
     send(sock, addr, {"type": "leave"})
     sock.close()

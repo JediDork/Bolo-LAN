@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.14 — Larger strategic world, real lakes and defensive retaliation
+
+- **Four times the playable terrain:** enlarged the world from **2600 × 1900** to **5200 × 3800** world units, without changing the fair **1200 × 760** viewport. Four map sectors now contain **24 capturable flags**, **16 starting pillboxes**, varied forests, lakes, roads and existing structures. Spawn locations are distributed across the larger area.
+- **Lakes look like complete lakes:** organic smooth, filled shoreline polygons replace the disconnected circles. Water has a continuous interior, gently outlined banks and occasional subtle ripples. Deep lake collision still follows authoritative 50-unit tiles.
+- **Rivers have destinations:** two narrow, connected waterways originate at the north and western world edges and flow directly into inland lakes. Each river uses one tile across its channel (with additional connecting elbow squares at turns) and remains fordable at 18% grass speed outside bridges.
+- **Roads and bridges:** paths link flags across the expanded map. Whenever a routed road crosses a river its bridge is prebuilt, while player-built bridges still work as before.
+- **Pillboxes respond to aggression:** turrets **track but do not fire** from **355–465 world units** until a player fires *towards* them. An aimed shot provokes the watching turret, which may retaliate across its full 465-unit detection area for 6 seconds. Inside 355 units, pillboxes still fire unprovoked. Sight is blocked by masonry and sufficiently deep forests, as before; pillboxes must rotate and align before firing.
+- **Large-map performance:** terrain now renders in on-demand cached 500-unit chunks with a bounded cache rather than allocating a huge full-world render surface. The minimap automatically scales down to continue showing the entire battlefield.
+
+**Multiplayer warning:** the map and server game rules changed substantially. Restart the host and update all connected clients before testing. Try exploring for several minutes in God Mode (G) and look for any seams, slow frames, or questionable shorelines.
+
 ## Version 0.13 — Forest ballistics, visible pillbox tracking and reverse steering
 
 - **Forest absorbs cannon shells:** shells can travel through at most two distinct 50×50 forest tiles before dissipating in the third. The depth is tracked across server ticks, so splitting a shot between simulation frames cannot bypass the woodland cover. Bullets and forest blocking use the same authoritative grid.

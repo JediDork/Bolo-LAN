@@ -49,7 +49,7 @@ def grid_center(tile):
 
 
 def world_to_tile(x, y):
-    return int(x // GRID_SIZE), int(y // GRID_SIZE)
+    return int((x % WORLD_W) // GRID_SIZE), int(y // GRID_SIZE)
 
 
 def tile_to_world(tile_x, tile_y):

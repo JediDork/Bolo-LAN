@@ -9,6 +9,7 @@ import pygame
 
 from effects import DETAILS
 from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
+from construction import BUILD_COSTS, BUILD_LABELS, BUILD_RANGE
 from terrain import (FOREST_TILES, LAKE_TILES, RIVER_TILES, ROAD_TILES, BRIDGE_TILES,
                      GRID_W, GRID_H, neighbors, terrain_at)
 
@@ -301,8 +302,52 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
 
 
 def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
-               fonts, host, port, connected, status, bases=(), pillboxes=()):
+               fonts, host, port, connected, status, bases=(), pillboxes=(),
+               built_walls=(), built_bridges=(), build_mode=False, build_part="wall",
+               hovered_tile=None, build_message=""):
     ground(surface, camera, wall_hp)
+    # Dynamic structures are drawn above the static terrain.
+    for tx, ty in built_bridges:
+        x, y = point(tx * GRID_SIZE, ty * GRID_SIZE, camera)
+        deck = pygame.Rect(x + 2, y + 13 * SCALE,
+                           GRID_SIZE * SCALE - 4, 24 * SCALE)
+        pygame.draw.rect(surface, (67, 57, 43), deck.inflate(0, 12 * SCALE), border_radius=4)
+        pygame.draw.rect(surface, (172, 136, 91), deck, border_radius=4)
+        for offset in range(6, GRID_SIZE, 10):
+            px = x + offset * SCALE
+            pygame.draw.line(surface, (99, 76, 55),
+                             (px, deck.top + 2), (px, deck.bottom - 2), 3)
+        pygame.draw.line(surface, (236, 198, 127),
+                         (deck.left, deck.top), (deck.right, deck.top), 4)
+        pygame.draw.line(surface, (236, 198, 127),
+                         (deck.left, deck.bottom), (deck.right, deck.bottom), 4)
+    for wall in built_walls:
+        tx, ty, hp = wall["tx"], wall["ty"], wall["hp"]
+        x, y = point(tx * GRID_SIZE, ty * GRID_SIZE, camera)
+        rect = pygame.Rect(x, y, GRID_SIZE * SCALE, GRID_SIZE * SCALE)
+        if not rect.colliderect(surface.get_rect()):
+            continue
+        base = ((128, 126, 108), (112, 107, 94),
+                (91, 85, 80), (73, 66, 62))[max(0, min(3, 4 - hp))]
+        pygame.draw.rect(surface, (30, 39, 37), rect)
+        pygame.draw.rect(surface, base, rect.inflate(-10, -10))
+        pygame.draw.rect(surface, (197, 175, 119), rect, 4)
+        if hp < 4:
+            pygame.draw.line(surface, (42, 42, 43), (x + 14, y + 10),
+                             (x + 70, y + 82), 5)
+    if build_mode and hovered_tile is not None:
+        tx, ty = hovered_tile
+        if 0 <= tx < WORLD_W // GRID_SIZE and 0 <= ty < WORLD_H // GRID_SIZE:
+            x, y = point(tx * GRID_SIZE, ty * GRID_SIZE, camera)
+            tile_rect = pygame.Rect(x, y, GRID_SIZE * SCALE, GRID_SIZE * SCALE)
+            # Server decides placement validity. Amber preview means chosen
+            # tile, not a promise that resources/terrain allow construction.
+            overlay = pygame.Surface((tile_rect.w, tile_rect.h), pygame.SRCALPHA)
+            overlay.fill((255, 218, 90, 74))
+            surface.blit(overlay, tile_rect.topleft)
+            pygame.draw.rect(surface, (255, 231, 118), tile_rect, 5)
+            label = fonts["label"].render(BUILD_LABELS[build_part], True, (255, 241, 173))
+            surface.blit(label, (x, y - 39))
     for base in bases:
         x, y = point(base["x"], base["y"], camera)
         owned = base["owner"] == local_id and local_id is not None
@@ -354,10 +399,12 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  RANGE TEST v0.11", True, (235, 233, 208)),
+        "BOLO-LAN  /  BASE BUILDER v0.12", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
-        f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | FIRE | G GOD | M MUTE",
+        (f"BUILD MODE: 1 WALL  2 BRIDGE  3 PILLBOX  4 REPAIR  5 REMOVE  |  CLICK PLACE  |  B EXIT"
+         if build_mode else
+         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD | FIRE | B BUILD | G GOD | M MUTE"),
         True, (191, 208, 195)), (40, RENDER_H - 92))
     local = next((p for p in players if p["id"] == local_id), None)
     if local:
@@ -365,8 +412,17 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
             f"ARMOUR {int(local['hp']):3d}%  AMMO {local.get('ammo', 24):2d}/24  "
             f"SPEED {abs(local.get('speed', 0)):.0f}  TERRAIN {terrain_at(local['x'], local['y']).upper()}  "
             f"KILLS {local['score']}  "
-            f"{'[GOD MODE ON]' if local.get('god_mode') else 'G: GOD MODE OFF'}",
+            f"MATERIAL {local.get('material', 0):.0f}/30  "
+            f"{'[GOD MODE ON]' if local.get('god_mode') else ''}",
             True, (252, 245, 205)), (40, RENDER_H - 50))
+    if build_mode:
+        chosen = f"{BUILD_LABELS[build_part]}  COST {BUILD_COSTS[build_part]}  RANGE {BUILD_RANGE}"
+        tool = fonts["label"].render(chosen, True, (255, 232, 128))
+        surface.blit(tool, (RENDER_W - tool.get_width() - 40, RENDER_H - 60))
+    if build_message:
+        msg = fonts["label"].render(build_message[:60], True, (255, 222, 122))
+        surface.blit(msg, (40, RENDER_H - 213))
+
     if not connected:
         text = fonts["heading"].render(status, True, (255, 203, 110))
         surface.blit(text, ((RENDER_W - text.get_width()) // 2, RENDER_H // 2))

@@ -2,6 +2,15 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.18 — Safe flag spawning and audible cannon reloads
+
+- **Start on a free flag:** on joining (and after respawning), the server chooses an unclaimed flag that isn't occupied by another tank. This gives new players an objective and a fair starting point.
+- **All flags taken:** when no suitable unclaimed flag remains, the server finds a random road/grass tile with clearance from other tanks and live pillboxes, aiming for at least **550 world units** away from danger and 450 units from other players. The placement respects horizontal planet wrapping. As a fallback, it chooses the safest feasible candidate.
+- **Entry protection:** new/respawned tanks receive **three seconds of damage protection**, and automated pillboxes won't target them during that window. This protects against rare unsafe map combinations; god mode (G) remains separately available for testing.
+- **Cannon reload rhythm:** player cannon cooldown is now **0.60 seconds**, up from 0.42 seconds. After each shot, a short metallic breech/bolt sound plays to the shooter shortly before the next shot becomes available. This gives each cannon shot a more deliberate loading cadence.
+- **No ammunition:** a dry tank cannot fire; the reload sound is omitted when the last shell is spent. The reload sound respects **M** mute and does not produce visual particle effects.
+- Server-authoritative spawn protection and reload timers are synchronized in multiplayer. Tests cover neutral-flag starts, safe fallback, entry grace and timed reload sounds.
+
 ## Version 0.17 — Six flags and resupply/ownership audio
 
 - The 5200 × 3800 planetary battlefield now has **six** strategic flags, down from 24.

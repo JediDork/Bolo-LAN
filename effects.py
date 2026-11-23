@@ -17,7 +17,7 @@ def draw_details(surface, camera, width, height):
     ox, oy = camera
     for wx, wy, size, kind in DETAILS:
         sx, sy = int(wx - ox), int(wy - oy)
-        if sx < -12 or sy < 52 or sx >= width + 12 or sy >= height + 12:
+        if sx < -12 or sy < -12 or sx >= width + 12 or sy >= height + 12:
             continue
         if kind == 0:
             pygame.draw.line(surface, (70, 111, 72),
@@ -43,18 +43,19 @@ class Effects:
             "impact": [(222, 193, 114), (154, 153, 134), (91, 93, 79)],
             "hit": [(255, 220, 123), (245, 112, 60), (144, 139, 125)],
             "destroy": [(255, 191, 86), (245, 99, 53), (91, 92, 86)],
+            "wall_break": [(182, 173, 148), (120, 122, 108), (74, 75, 69)],
         }.get(kind, [(250, 200, 130)])
-        count = {"fire": 10, "impact": 14, "hit": 20, "destroy": 60}.get(kind, 12)
+        count = {"fire": 10, "impact": 14, "hit": 20, "destroy": 60, "wall_break": 38}.get(kind, 12)
         for _ in range(count):
             theta = angle + self.rng.uniform(-0.9, 0.9) if kind == "fire" else self.rng.uniform(0, math.tau)
-            speed = self.rng.uniform(55, 175 if kind != "destroy" else 270)
+            speed = self.rng.uniform(55, 175 if kind not in ("destroy", "wall_break") else 220)
             life = self.rng.uniform(0.16, 0.4 if kind == "fire" else 0.75)
             self.particles.append([x, y, math.cos(theta) * speed,
                                    math.sin(theta) * speed, life, life,
                                    self.rng.choice(palette), self.rng.randint(2, 6)])
-        if kind in ("hit", "destroy", "impact"):
+        if kind in ("hit", "destroy", "impact", "wall_break"):
             self.rings.append([x, y, 0.0, 0.45 if kind == "destroy" else 0.22,
-                               95 if kind == "destroy" else 40])
+                               95 if kind == "destroy" else (64 if kind == "wall_break" else 40)])
         self.particles = self.particles[-600:]
 
     def dust(self, x, y):

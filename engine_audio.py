@@ -1,34 +1,50 @@
-"""Procedural looped tank engine sound with speed-responsive crossfading.
+"""Low-frequency procedural diesel tank engine.
 
-No sample assets or streaming; three tonal loops blend on independent reserved
-mixer channels. Sound is only the local tank and does not change gameplay.
+Unlike pure rising sine waves, this uses periodic exhaust thumps and muted
+mechanical texture. 1-second buffers loop seamlessly; crossfaded engine-load
+layers are kept much closer in pitch to avoid the earlier sci-fi whine.
 """
 from array import array
 import math
-import random
 
 import pygame
 
 from audio import SAMPLE_RATE
 
 
+ENGINE_RATES = (16, 20, 24)
+
+
 def engine_loop(rpm_hz):
-    """Generate one-second seamless looping engine waveform at integer Hz."""
-    count = SAMPLE_RATE
-    values = array("h")
-    # Integer cycles make both ends match for seamless looping.
-    base = round(rpm_hz)
-    for i in range(count):
-        time = i / SAMPLE_RATE
-        crank = math.tau * base * time
-        # Exhaust pulses, mechanical rattle and a quiet low-frequency drone.
-        pulse = math.sin(crank) * 0.55
-        pulse += math.sin(crank * 2) * 0.18
-        pulse += math.sin(crank * 3) * 0.10
-        pulse += math.sin(crank * 7) * 0.06
-        pulse += math.sin(math.tau * (base // 3) * time) * 0.12
-        values.append(round(max(-1, min(1, pulse * 0.72)) * 32767))
-    return values.tobytes()
+    """Generate one-second, low-register thumping exhaust cycle."""
+    samples = array("h")
+    base = max(6, min(48, int(round(rpm_hz))))
+    for i in range(SAMPLE_RATE):
+        t = i / SAMPLE_RATE
+        phase = math.tau * base * t
+        # Narrow firing impulses make this more like a diesel engine than a
+        # continuously pitched sine oscillator.
+        thump = max(0.0, math.cos(phase)) ** 6
+        low = math.sin(phase) * 0.15 + math.sin(phase * 2) * 0.055
+        pulse = (thump - 0.22) * 0.88
+        # Subtle mechanical chatter, not a high-pitched lead tone.
+        chatter = (math.sin(math.tau * 71 * t) *
+                   math.sin(math.tau * 37 * t)) * 0.048
+        rumble = math.sin(math.tau * 7 * t) * 0.05
+        value = max(-1.0, min(1.0, (pulse + low + chatter + rumble) * 0.78))
+        samples.append(round(value * 32767))
+    return samples.tobytes()
+
+
+def engine_mix(speed, throttle):
+    """Three-layer volumes; quieter, lower-pitched diesel under load."""
+    fraction = min(1.0, abs(speed) / 150.0)
+    fraction = min(1.0, fraction + (0.06 if throttle else 0.0))
+    if fraction <= 0.5:
+        blend = fraction * 2
+        return (0.22 * (1 - blend), 0.29 * blend, 0.0)
+    blend = (fraction - 0.5) * 2
+    return (0.0, 0.29 * (1 - blend), 0.30 * blend)
 
 
 class EngineAudio:
@@ -41,7 +57,7 @@ class EngineAudio:
             return
         try:
             pygame.mixer.set_reserved(3)
-            for index, hz in enumerate((21, 34, 49)):
+            for index, hz in enumerate(ENGINE_RATES):
                 channel = pygame.mixer.Channel(index)
                 loop = pygame.mixer.Sound(buffer=engine_loop(hz))
                 channel.set_volume(0.0)
@@ -56,15 +72,8 @@ class EngineAudio:
     def update(self, dt, speed, throttle, alive=True):
         if not self.enabled:
             return
-        fraction = min(1.0, abs(speed) / 150.0)
-        load = 0.10 if throttle else 0.0
-        fraction = min(1.0, fraction + load)
-        # Continuous equal-power-ish crossfade between idle, cruise and revs.
-        idle = max(0.0, 1.0 - fraction * 2)
-        mid = max(0.0, 1.0 - abs(fraction - 0.48) * 2.15)
-        high = max(0.0, (fraction - 0.35) / 0.65)
-        targets = [idle * 0.22, mid * 0.32, high * 0.34]
-        fade = min(1.0, max(0, dt) * 5.5)
+        targets = engine_mix(speed, throttle)
+        fade = min(1.0, max(0.0, dt) * 5.5)
         for index, (channel, _) in enumerate(self.channels):
             target = targets[index] if alive and not self.bank.muted else 0.0
             self.levels[index] += (target - self.levels[index]) * fade

@@ -262,7 +262,8 @@ def particles(surface, camera, effects):
                            max(1, round(SCALE * 3 * (1 - ratio))))
 
 
-def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
+def minimap(surface, players, local_id, camera, bases=(), pillboxes=(),
+            built_walls=(), built_bridges=()):
     radar_scale = 0.10 * SCALE
     ww, hh = round(WORLD_W * radar_scale), round(WORLD_H * radar_scale)
     left, top = RENDER_W - ww - 36, 144
@@ -287,6 +288,16 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
                        round(WORLD_VIEW_W * radar_scale),
                        round(WORLD_VIEW_H * radar_scale))
     pygame.draw.rect(surface, (92, 117, 106), rect, 2)
+    for wall in built_walls:
+        pygame.draw.rect(surface, (210, 176, 116),
+                         (round(left + wall["tx"] * GRID_SIZE * radar_scale),
+                          round(top + wall["ty"] * GRID_SIZE * radar_scale),
+                          max(2, round(GRID_SIZE * radar_scale)),
+                          max(2, round(GRID_SIZE * radar_scale))))
+    for tx, ty in built_bridges:
+        dot(surface, (235, 198, 109),
+            left + (tx + 0.5) * GRID_SIZE * radar_scale,
+            top + (ty + 0.5) * GRID_SIZE * radar_scale, 5)
     for b in bases:
         dot(surface, (208, 187, 95) if b["owner"] == 0 else (109, 232, 167),
             left + b["x"] * radar_scale, top + b["y"] * radar_scale, 7)
@@ -379,7 +390,9 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
             continue
         x, y = point(box["x"], box["y"], camera)
         pygame.draw.circle(surface, (23, 37, 36), (x, y), 29 * SCALE)
-        pygame.draw.circle(surface, (139, 102, 77), (x, y), 22 * SCALE)
+        body_color = ((78, 151, 118) if box.get("owner") == local_id
+                      else (139, 102, 77))
+        pygame.draw.circle(surface, body_color, (x, y), 22 * SCALE)
         pygame.draw.circle(surface, (64, 65, 58), (x, y), 14 * SCALE)
         pygame.draw.line(surface, (234, 132, 81), (x, y), (x + 21 * SCALE, y), 8)
         pygame.draw.rect(surface, (44, 43, 39),
@@ -393,7 +406,8 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     for p in players:
         tank(surface, p, camera, fonts["label"], local_id)
     particles(surface, camera, effects)
-    minimap(surface, players, local_id, camera, bases, pillboxes)
+    minimap(surface, players, local_id, camera, bases, pillboxes,
+            built_walls, built_bridges)
 
     panel = pygame.Surface((1430, 144), pygame.SRCALPHA)
     panel.fill((16, 30, 29, 208))

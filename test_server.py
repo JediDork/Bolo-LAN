@@ -1,10 +1,12 @@
 """Headless smoke tests for the LAN gameplay server."""
 import json
+import math
 import socket
 import unittest
 
 from server import (GameServer, TURRET_SPEED, MOVE_SPEED, REVERSE_SPEED,
-                    ACCELERATION, PILLBOX_RANGE)
+                    ACCELERATION, PILLBOX_RANGE, PILLBOX_DETECTION_RANGE,
+                    PILLBOX_TURN_SPEED, FOREST_PENETRATION_TILES)
 from shared import (GRID_SIZE, WALLS, WALL_SECTIONS, WALL_MAX_HP,
                     wall_at, overlaps_wall, world_to_tile, tile_to_world)
 from display import viewport, to_logical
@@ -178,12 +180,14 @@ class GameServerTests(unittest.TestCase):
         # The defensive range must be shorter to avoid offscreen attacks.
         self.assertGreater(PILLBOX_RANGE, 300)
         self.assertLess(PILLBOX_RANGE, 380)
-        x, y = PILLBOX_SITES[0]
+        box = self.server.pillboxes[0]
+        box.update(x=250.0, y=350.0, angle=0.0)
+        x, y = box["x"], box["y"]
         p = self.server.players[1]
         for other in self.server.pillboxes[1:]:
             other["hp"] = 0
         self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":false}', self.address1)
-        # Outside firing range: no turret should shoot.
+        # In the larger tracking range but beyond firing distance:
         p.update(x=float(x), y=float(y + PILLBOX_RANGE + 25), speed=0.0)
         for _ in range(25):
             self.server.step(1 / 30)
@@ -195,6 +199,70 @@ class GameServerTests(unittest.TestCase):
             self.server.step(1 / 30)
         self.assertTrue(any(e["type"] == "fire" and e["x"] == x
                             for e in self.server.events))
+
+    def test_pillbox_tracks_before_firing_and_turn_rate_is_limited(self):
+        box = self.server.pillboxes[0]
+        box.update(x=250.0, y=350.0, angle=0.0, cooldown=0.0)
+        p = self.server.players[1]
+        p.update(x=250.0, y=350.0 + PILLBOX_RANGE + 28, speed=0.0)
+        for other in self.server.pillboxes[1:]:
+            other["hp"] = 0
+        self.assertLess(PILLBOX_RANGE, PILLBOX_DETECTION_RANGE)
+        self.assertLess(PILLBOX_DETECTION_RANGE, 520)
+        self.server.update_pillboxes(1 / 30)
+        self.assertTrue(box["tracking"])
+        self.assertGreater(box["angle"], 0.0)
+        self.assertLessEqual(box["angle"], PILLBOX_TURN_SPEED / 30 + 1e-6)
+        self.assertEqual(len(self.server.bullets), 0)
+        for _ in range(70):
+            self.server.update_pillboxes(1 / 30)
+        self.assertEqual(len(self.server.bullets), 0)
+        p["y"] = box["y"] + PILLBOX_RANGE - 30
+        for _ in range(35):
+            self.server.update_pillboxes(1 / 30)
+        self.assertTrue(self.server.bullets)
+        self.assertAlmostEqual(box["angle"], math.pi / 2, delta=0.14)
+
+    def test_forest_blocks_after_two_distinct_tiles(self):
+        # Find a clean three-cell forest corridor with no surviving walls.
+        found = None
+        for tx, ty in sorted(FOREST_TILES):
+            cells = [(tx + i, ty) for i in range(3)]
+            if all(cell in FOREST_TILES for cell in cells):
+                x0, y0 = tile_to_world(tx, ty)
+                x1, y1 = tile_to_world(tx + 2, ty)
+                if not self.server.wall_obstruction_at(x0, y0) and not self.server.wall_obstruction_at(x1, y1):
+                    found = (x0 - 12, y0, x1 + 12, y1)
+                    break
+        self.assertIsNotNone(found)
+        x0, y0, x1, y1 = found
+        self.assertEqual(FOREST_PENETRATION_TILES, 2)
+        bullet = {"forest_depth": 0}
+        obstruction = self.server.shell_obstruction(bullet, x0, y0, x1, y1)
+        self.assertIsNotNone(obstruction)
+        self.assertEqual(obstruction[0], "forest")
+        self.assertFalse(self.server.can_see(x0, y0, x1, y1))
+
+    def test_wall_blocks_pillbox_vision(self):
+        # Use an actual intact wall section, never a hard-coded map location.
+        index = next(i for i, hp in enumerate(self.server.wall_hp) if hp > 0)
+        wx, wy, ww, wh = WALL_SECTIONS[index]
+        x0, y0 = wx - 15.0, wy + wh / 2
+        x1, y1 = wx + ww + 15.0, wy + wh / 2
+        self.assertFalse(self.server.can_see(x0, y0, x1, y1))
+        self.server.wall_hp[index] = 0
+        # This may cross another wall, so verify direct obstruction is gone.
+        self.assertIsNone(self.server.wall_obstruction_at(wx + ww / 2, wy + wh / 2))
+
+    def test_reversing_inverts_hull_turn(self):
+        p = self.server.players[1]
+        p["speed"] = -30.0
+        self.server.handle(b'{"type":"input","move":-1,"turn":1,"aim":0,"fire":false}',
+                           self.address1)
+        before = p["angle"]
+        self.server.step(1 / 30)
+        delta = (p["angle"] - before + math.pi) % (2 * math.pi) - math.pi
+        self.assertLess(delta, 0)
 
     def test_god_mode_toggles_and_blocks_damage(self):
         p = self.server.players[1]

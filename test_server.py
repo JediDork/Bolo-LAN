@@ -235,8 +235,8 @@ class GameServerTests(unittest.TestCase):
                               if e["type"] == "flag_taken"]), 1)
 
     def test_reduced_drive_speed_and_acceleration(self):
-        self.assertEqual(MOVE_SPEED, 125.0)
-        self.assertEqual(REVERSE_SPEED, 75.0)
+        self.assertEqual(MOVE_SPEED, 95.0)
+        self.assertEqual(REVERSE_SPEED, 55.0)
         self.assertEqual(ACCELERATION, 115.0)
         p = self.server.players[1]
         self.server.handle(b'{"type":"input","move":1,"turn":0,"aim":0,"fire":false}', self.address1)
@@ -734,7 +734,7 @@ class SpawnAndReloadTests(unittest.TestCase):
 
     def test_reload_sound_happens_between_shots(self):
         from server import RELOAD, RELOAD_SOUND_AT
-        self.assertGreater(RELOAD, 0.42)
+        self.assertEqual(RELOAD, 1.25)
         self.assertGreater(RELOAD, RELOAD_SOUND_AT)
         player = self.server.players[1]
         self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":true}',
@@ -742,12 +742,43 @@ class SpawnAndReloadTests(unittest.TestCase):
         self.server.step(1 / 30)
         self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 1)
         self.assertFalse(any(e["type"] == "reload" for e in self.server.events))
-        self.server.step(0.42)
+        self.server.step(0.92)
         sounds = [e for e in self.server.events if e["type"] == "reload"]
         self.assertEqual(len(sounds), 1)
         self.assertEqual(sounds[0]["recipient"], player["id"])
         self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 1)
-        self.server.step(0.20)
+        self.server.step(0.36)
+        self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 2)
+
+    def test_reload_timer_is_in_player_snapshots(self):
+        from server import RELOAD
+        p = self.server.players[1]
+        p["reload"] = 0.75
+        # Capture the payload without requiring a running client.
+        captured = []
+        old_transmit = self.server.transmit
+        self.server.transmit = lambda address, packet: captured.append(packet)
+        try:
+            self.server.snapshot()
+        finally:
+            self.server.transmit = old_transmit
+        self.assertTrue(captured)
+        player = next(item for item in captured[0]["players"]
+                      if item["id"] == p["id"])
+        self.assertEqual(player["reload"], 0.75)
+        self.assertEqual(player["reload_duration"], RELOAD)
+
+    def test_cannon_does_not_fire_during_long_reload(self):
+        from server import RELOAD
+        self.assertGreaterEqual(RELOAD, 1.1)
+        self.server.handle(b'{"type":"input","move":0,"turn":0,"aim":0,"fire":true}',
+                           self.first_addr)
+        self.server.step(0.03)
+        first = sum(e["type"] == "fire" for e in self.server.events)
+        self.assertEqual(first, 1)
+        self.server.step(0.7)
+        self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), first)
+        self.server.step(0.58)
         self.assertEqual(sum(e["type"] == "fire" for e in self.server.events), 2)
 
     def test_spawn_grace_prevents_turret_targeting_and_damage(self):

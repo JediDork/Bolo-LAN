@@ -6,7 +6,7 @@ follows smooth analytic boundaries, but gameplay is always deterministic.
 import heapq
 import math
 
-from shared import GRID_SIZE, WALL_SECTIONS, WORLD_H, WORLD_W, tile_to_world
+from shared import GRID_SIZE, WALL_SECTIONS, WORLD_H, WORLD_W, tile_to_world, wrap_x
 
 GRID_W = WORLD_W // GRID_SIZE
 GRID_H = WORLD_H // GRID_SIZE
@@ -237,16 +237,17 @@ ROADS = ROAD_TILES
 
 
 def tile_at(x, y):
-    return int(x // GRID_SIZE), int(y // GRID_SIZE)
+    return int(wrap_x(x) // GRID_SIZE), int(y // GRID_SIZE)
 
 
 def water_at(x, y, radius=0):
     """Deep lake tiles block tanks; narrow rivers remain fordable."""
+    x = wrap_x(x)
     cx, cy = tile_at(x, y)
     reach = max(0, math.ceil(radius / GRID_SIZE) + 1)
     for ty in range(cy - reach, cy + reach + 1):
         for tx in range(cx - reach, cx + reach + 1):
-            if (tx, ty) not in LAKE_TILES:
+            if (tx % GRID_W, ty) not in LAKE_TILES:
                 continue
             wx, wy = tx * GRID_SIZE, ty * GRID_SIZE
             px = max(wx, min(wx + GRID_SIZE, x))

@@ -2,6 +2,16 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.13 — Forest ballistics, visible pillbox tracking and reverse steering
+
+- **Forest absorbs cannon shells:** shells can travel through at most two distinct 50×50 forest tiles before dissipating in the third. The depth is tracked across server ticks, so splitting a shot between simulation frames cannot bypass the woodland cover. Bullets and forest blocking use the same authoritative grid.
+- **Turrets watch before firing:** automated pillboxes now acquire and slowly rotate their visible barrel towards a tank within **465 world units**, but do not fire until the tank is inside **355 world units** and the barrel is aligned. A subtle amber acquisition ring indicates that a pillbox sees a target.
+- **Real line of sight:** pillboxes cannot detect or shoot through intact pre-existing walls, newly built walls, or more than two forest tiles. If the view becomes blocked, they stop tracking and firing. Friendly pillboxes retain owner protection.
+- **Reverse steering is mirrored:** pressing **S+D** while reversing rotates the hull in the opposite direction to forward **W+D**, so the rear moves to the right. **S+A** mirrors it to the left.
+- Server-controlled tracking, hit detection and movement are synchronized to every player; HUD fairness and God Mode are unchanged.
+
+Run the existing PowerShell updater or download the successful Windows artifact from GitHub Actions. All host and clients must use the same code version.
+
 ## Version 0.12 — Playable base builder
 
 - Press **B** to enter or exit build mode. The tank remains driveable, but left-click now places selected construction; **Space** still fires its cannon.

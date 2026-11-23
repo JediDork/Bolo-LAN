@@ -15,6 +15,7 @@ from effects import Effects, draw_details, draw_minimap
 from display import viewport, to_logical
 from renderer import draw_frame, RENDER_W, RENDER_H
 from audio import SoundBank, SAMPLE_RATE
+from engine_audio import EngineAudio
 
 WIDTH, HEIGHT = 1200, 760
 BG = (45, 82, 61)
@@ -186,6 +187,7 @@ def main(argv=None):
     fonts = {"label": pygame.font.SysFont("consolas", 32, bold=True),
              "heading": pygame.font.SysFont("consolas", 46, bold=True)}
     audio = SoundBank()
+    engine = EngineAudio(audio)
     clock = pygame.time.Clock()
     local_id = None
     state = {"players": [], "bullets": [], "events": [],
@@ -283,6 +285,11 @@ def main(argv=None):
         mx, my = to_logical(pygame.mouse.get_pos(), view, WIDTH, HEIGHT)
         aim = math.atan2(my + camera[1] - player["y"], mx + camera[0] - player["x"]) if player else 0.0
         firing = bool(pygame.mouse.get_pressed()[0] or keys[pygame.K_SPACE])
+        # Continuous local engine responds to authoritative velocity and input.
+        # Mute also affects this layer without changing the multiplayer state.
+        engine.update(dt, player.get("speed", 0.0) if player else 0.0,
+                      movement if player else 0,
+                      alive=bool(player and not player.get("dead")))
         if local_id is not None and now - previous_input > 1 / 30:
             send(sock, addr, {"type": "input", "move": movement, "turn": turn,
                               "aim": aim, "fire": firing})
@@ -318,6 +325,7 @@ def main(argv=None):
             scaled = pygame.transform.smoothscale(screen, (draw_width, draw_height))
             display.blit(scaled, (left, top))
         pygame.display.flip()
+    engine.stop()
     send(sock, addr, {"type": "leave"})
     sock.close()
     pygame.quit()

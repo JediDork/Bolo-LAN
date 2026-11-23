@@ -10,17 +10,17 @@ from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
                      water_at)
 
-MOVE_SPEED = 195.0
-REVERSE_SPEED = 125.0
+MOVE_SPEED = 125.0
+REVERSE_SPEED = 75.0
 TURN_SPEED = 2.9
-ACCELERATION = 245.0        # World units per second squared
-BRAKE_ACCELERATION = 370.0  # Counter-throttle response
-ROLLING_DRAG = 115.0        # Natural coasting resistance
+ACCELERATION = 115.0        # World units per second squared
+BRAKE_ACCELERATION = 220.0  # Counter-throttle response
+ROLLING_DRAG = 80.0        # Natural coasting resistance
 TURN_ACCELERATION = 7.5
 TURN_DRAG = 10.0
 CAPTURE_TIME = 2.5
 BASE_RADIUS = 54
-PILLBOX_RANGE = 315
+PILLBOX_RANGE = 550
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
@@ -161,7 +161,7 @@ class GameServer:
                 change = (BRAKE_ACCELERATION if speed * throttle < 0 else ACCELERATION) * dt
             player["speed"] += clamp(target_speed - speed, -change, change)
             # Turning is slightly less responsive at maximum speed.
-            turn_limit = TURN_SPEED * (0.76 if abs(player["speed"]) > 155 else 1.0)
+            turn_limit = TURN_SPEED * (0.76 if abs(player["speed"]) > 105 else 1.0)
             target_turn = turning * turn_limit
             step_turn = (TURN_ACCELERATION if turning else TURN_DRAG) * dt
             player["angular_speed"] += clamp(target_turn - player["angular_speed"],
@@ -312,9 +312,9 @@ class GameServer:
                                  "y": box["y"] + math.sin(angle) * 24,
                                  "vx": math.cos(angle) * SHELL_SPEED,
                                  "vy": math.sin(angle) * SHELL_SPEED,
-                                 "life": 0.9, "owner": -1, "damage": 18})
+                                 "life": 1.10, "owner": -1, "damage": 18})
             self.event("fire", box["x"], box["y"], angle=angle)
-            box["cooldown"] = 1.35
+            box["cooldown"] = 1.0
 
     def snapshot(self):
         players = [{"id": p["id"], "name": p["name"], "x": round(p["x"], 1),

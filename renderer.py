@@ -9,7 +9,7 @@ from collections import OrderedDict
 import pygame
 
 from effects import DETAILS
-from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
+from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W, nearest_x
 from construction import BUILD_COSTS, BUILD_LABELS, BUILD_RANGE
 from terrain import (FOREST_TILES, LAKE_TILES, RIVER_TILES, ROAD_TILES, BRIDGE_TILES,
                      GRID_W, GRID_H, neighbors, terrain_at, LAKE_PATCHES,
@@ -22,7 +22,9 @@ BG = (45, 82, 61)
 
 
 def point(wx, wy, camera):
-    return round((wx - camera[0]) * SCALE), round((wy - camera[1]) * SCALE)
+    # Choose the closest copy of the planet to this camera viewpoint.
+    visible_x = nearest_x(wx, camera[0] + WORLD_VIEW_W / 2)
+    return round((visible_x - camera[0]) * SCALE), round((wy - camera[1]) * SCALE)
 
 
 def dot(surface, color, x, y, radius):
@@ -215,28 +217,34 @@ def make_terrain_chunk(cx, cy):
 
 
 def ground(surface, camera, wall_hp, built_roads=()):
-    left = max(0, int(camera[0] // CHUNK_WORLD))
-    top = max(0, int(camera[1] // CHUNK_WORLD))
-    right = min(math.ceil(WORLD_W / CHUNK_WORLD),
-                math.ceil((camera[0] + WORLD_VIEW_W) / CHUNK_WORLD) + 1)
-    bottom = min(math.ceil(WORLD_H / CHUNK_WORLD),
-                 math.ceil((camera[1] + WORLD_VIEW_H) / CHUNK_WORLD) + 1)
     surface.fill(BG)
-    for cy in range(top, bottom):
-        for cx in range(left, right):
-            key = cx, cy
-            chunk = _TERRAIN_CHUNKS.get(key)
-            if chunk is None:
-                chunk = make_terrain_chunk(cx, cy)
-                _TERRAIN_CHUNKS[key] = chunk
-                if len(_TERRAIN_CHUNKS) > MAX_CHUNKS:
-                    _TERRAIN_CHUNKS.popitem(last=False)
-            else:
-                _TERRAIN_CHUNKS.move_to_end(key)
-            dx, dy = point(cx * CHUNK_WORLD, cy * CHUNK_WORLD, camera)
-            crop = pygame.Rect(CHUNK_PAD * SCALE, CHUNK_PAD * SCALE,
-                               CHUNK_WORLD * SCALE, CHUNK_WORLD * SCALE)
-            surface.blit(chunk, (dx, dy), crop)
+    # Draw canonical world chunks under each visible longitude copy. The
+    # final world chunk is only 200 units wide; the next copy of chunk zero
+    # starts immediately at WORLD_W, without a blank strip or a hard border.
+    chunk_columns = math.ceil(WORLD_W / CHUNK_WORLD)
+    for cy in range(max(0, int(camera[1] // CHUNK_WORLD)),
+                    min(math.ceil(WORLD_H / CHUNK_WORLD),
+                        math.ceil((camera[1] + WORLD_VIEW_H) / CHUNK_WORLD) + 1)):
+        for copy in (-1, 0, 1):
+            for cx in range(chunk_columns):
+                wx = cx * CHUNK_WORLD + copy * WORLD_W
+                chunk_width = min(CHUNK_WORLD, WORLD_W - cx * CHUNK_WORLD)
+                if wx + chunk_width <= camera[0] or wx >= camera[0] + WORLD_VIEW_W:
+                    continue
+                key = cx, cy
+                chunk = _TERRAIN_CHUNKS.get(key)
+                if chunk is None:
+                    chunk = make_terrain_chunk(cx, cy)
+                    _TERRAIN_CHUNKS[key] = chunk
+                    if len(_TERRAIN_CHUNKS) > MAX_CHUNKS:
+                        _TERRAIN_CHUNKS.popitem(last=False)
+                else:
+                    _TERRAIN_CHUNKS.move_to_end(key)
+                dx = round((wx - camera[0]) * SCALE)
+                dy = round((cy * CHUNK_WORLD - camera[1]) * SCALE)
+                crop = pygame.Rect(CHUNK_PAD * SCALE, CHUNK_PAD * SCALE,
+                                   chunk_width * SCALE, CHUNK_WORLD * SCALE)
+                surface.blit(chunk, (dx, dy), crop)
     # User-built road sections appear instantly, using the same uninterrupted
     # geometry as the baked tracks. Redraw their immediate join neighbourhood
     # so road ends turn into smooth junctions rather than overlapping circles.
@@ -278,9 +286,11 @@ def ground(surface, camera, wall_hp, built_roads=()):
             pygame.draw.ellipse(surface, (52, 51, 48),
                                 pygame.Rect(cx0 - 6 * damage, cy0 - 6 * damage,
                                             12 * damage, 12 * damage))
-    x, y = point(0, 0, camera)
-    pygame.draw.rect(surface, (199, 208, 168),
-                     pygame.Rect(x, y, WORLD_W * SCALE, WORLD_H * SCALE), 7)
+    # No eastern/western borders: these longitude edges are joined.
+    for pole_y in (0, WORLD_H):
+        _, sy = point(0, pole_y, camera)
+        pygame.draw.line(surface, (199, 208, 168), (0, sy),
+                         (RENDER_W, sy), 7)
 
 
 def tank(surface, player, camera, font, local_id):
@@ -369,11 +379,16 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=(),
                               max(1, round(GRID_SIZE * radar_scale)),
                               max(1, round(GRID_SIZE * radar_scale))))
     pygame.draw.rect(surface, (133, 155, 126), panel, 4)
-    rect = pygame.Rect(left + round(camera[0] * radar_scale),
-                       top + round(camera[1] * radar_scale),
-                       round(WORLD_VIEW_W * radar_scale),
-                       round(WORLD_VIEW_H * radar_scale))
-    pygame.draw.rect(surface, (92, 117, 106), rect, 2)
+    # A seam-straddling camera draws two view rectangles on the overview.
+    for copy in (0, -WORLD_W):
+        rect = pygame.Rect(left + round((camera[0] + copy) * radar_scale),
+                           top + round(camera[1] * radar_scale),
+                           round(WORLD_VIEW_W * radar_scale),
+                           round(WORLD_VIEW_H * radar_scale))
+        clip_before = surface.get_clip()
+        surface.set_clip(panel)
+        pygame.draw.rect(surface, (92, 117, 106), rect, 2)
+        surface.set_clip(clip_before)
     for tx, ty in built_roads:
         pygame.draw.rect(surface, (166, 138, 101),
                          (round(left + tx * GRID_SIZE * radar_scale),

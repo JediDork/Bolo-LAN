@@ -137,12 +137,17 @@ def tank(surface, player, camera, font, local_id):
                ((24, -15), (24, 15), (-22, 15), (-22, -15))]
     pygame.draw.polygon(surface, color, outline)
     pygame.draw.polygon(surface, (20, 32, 31), outline, 4)
+    # Tread cleats advance with reported vehicle speed, including reverse.
+    travel = player.get("speed", 0.0)
+    track_phase = ((pygame.time.get_ticks() / 1000.0) * travel * 0.13) % 7.0
     for side in (-1, 1):
         pygame.draw.line(surface, (22, 36, 31),
                          hull_point(-17, side * 13),
                          hull_point(17, side * 13), 12)
-        for forward in (-14, -7, 0, 7, 14):
-            dot(surface, (95, 102, 86), *hull_point(forward, side * 13), 4)
+        for slot in range(-4, 5):
+            forward = slot * 7 + track_phase
+            if -17 <= forward <= 17:
+                dot(surface, (95, 102, 86), *hull_point(forward, side * 13), 4)
     barrel = (round(x + math.cos(turret) * 34 * SCALE),
               round(y + math.sin(turret) * 34 * SCALE))
     pygame.draw.line(surface, (23, 34, 32), (x, y), barrel, 22)
@@ -155,7 +160,7 @@ def tank(surface, player, camera, font, local_id):
     pygame.draw.polygon(surface, (35, 36, 24), arrow, 3)
     if player["id"] == local_id:
         pygame.draw.circle(surface, (246, 244, 174), (x, y), 60, 4)
-    label = font.render(f'{player["name"]}  {player["hp"]}%', True, (242, 242, 229))
+    label = font.render(f'{player["name"]}  {int(player["hp"])}%', True, (242, 242, 229))
     surface.blit(label, (x - label.get_width() // 2, y - 90))
 
 

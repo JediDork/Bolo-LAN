@@ -251,7 +251,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     local = next((p for p in players if p["id"] == local_id), None)
     if local:
         surface.blit(fonts["label"].render(
-            f"ARMOUR {local['hp']:3d}%     AMMO {local.get('ammo', 24):2d}/24     KILLS {local['score']}",
+            f"ARMOUR {int(local['hp']):3d}%     AMMO {local.get('ammo', 24):2d}/24     KILLS {local['score']}",
             True, (252, 245, 205)), (40, RENDER_H - 50))
     if not connected:
         text = fonts["heading"].render(status, True, (255, 203, 110))

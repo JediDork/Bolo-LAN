@@ -23,6 +23,7 @@ def _synth(kind):
         "material_full": (0.38, 650, 920, 0.54),
         "ammo_added": (0.17, 270, 155, 0.53),
         "ammo_full": (0.43, 390, 700, 0.52),
+        "reload": (0.25, 235, 120, 0.47),
         # Flag success rises; losing a flag falls in pitch.
         "flag_taken": (0.55, 420, 720, 0.60),
         "flag_lost": (0.58, 420, 145, 0.62),
@@ -34,6 +35,7 @@ def _synth(kind):
                          "destroy": 11, "wall_break": 13,
                          "material_added": 17, "material_full": 19,
                          "ammo_added": 23, "ammo_full": 29,
+                         "reload": 41,
                          "flag_taken": 31, "flag_lost": 37}[kind])
     phase = 0.0
     for i in range(count):
@@ -46,10 +48,14 @@ def _synth(kind):
             sound = math.sin(phase) * 0.65 + noise * (1 - t) * 0.55
         elif kind in ("destroy", "wall_break"):
             sound = math.sin(phase) * 0.4 + noise * 0.6
-        elif kind in ("material_added", "ammo_added"):
+        elif kind in ("material_added", "ammo_added", "reload"):
             # Short tactile clicks; ammo uses a heavier mechanical clunk.
             metallic = math.sin(phase) * (0.75 if kind == "material_added" else 0.45)
             sound = metallic + noise * (0.18 if kind == "material_added" else 0.55)
+            if kind == "reload":
+                # Two distinct clacks: extraction and bolt closure.
+                clack = max(0.0, 1.0 - abs(t - 0.63) * 18)
+                sound = noise * (0.27 + clack * 0.4) + metallic * 0.30
         elif kind in ("material_full", "ammo_full"):
             # Two-note confirmation, more resonant than the individual load.
             second = math.sin(phase * (1.5 if kind == "material_full" else 1.25))
@@ -79,7 +85,8 @@ class SoundBank:
             # Generate mono buffers matching the signed-16-bit mixer.
             for event in ("fire", "impact", "hit", "destroy", "wall_break",
                           "material_added", "material_full",
-                          "ammo_added", "ammo_full", "flag_taken", "flag_lost"):
+                          "ammo_added", "ammo_full", "flag_taken", "flag_lost",
+                          "reload"):
                 self.sounds[event] = pygame.mixer.Sound(buffer=_synth(event))
             pygame.mixer.set_num_channels(24)
             self.enabled = True

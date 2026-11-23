@@ -127,6 +127,12 @@ def edge_river(source, destination, axis):
         tile = (cross, primary) if axis == "y" else (primary, cross)
         if tile in LAKE_TILES:
             break
+        # Diagonal steps need a corner square so the narrow watercourse stays
+        # four-connected for tanks, bridges and the underlying grid.
+        if path and abs(tile[0] - path[-1][0]) + abs(tile[1] - path[-1][1]) == 2:
+            elbow = (tile[0], path[-1][1]) if axis == "y" else (path[-1][0], tile[1])
+            if elbow not in LAKE_TILES:
+                path.append(elbow)
         path.append(tile)
     else:
         # A river must never end in nowhere. Routes are chosen to intersect a

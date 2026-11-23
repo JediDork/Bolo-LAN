@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.7 — Tank feel and defensive range tuning
+
+Changes based on multiplayer playtesting:
+- **Continuous tank engine audio:** three generated engine layers crossfade with tank speed/throttle. Hear a quiet idle rumble at rest and deeper, louder revving while driving. Press **M** to mute both engine and weapon effects; no audio files to download.
+- **Lower vehicle speed:** maximum forward speed reduced from 195 to **125** world units/s (road speed up to 150), reverse reduced from 125 to **75**.
+- **More gradual acceleration:** acceleration reduced from 245 to **115** units/s², braking reduced to 220, drag reduced to 80. This is a tuning baseline for feedback.
+- **Pillbox defensive reach:** automated pillbox detection increased from 315 to **850** world units, and shell lifetime extended so shells can actually reach their targets. Cooldown tightened to 1.0 second. This reduces the ease of destroying them by staying at long range.
+- Server owns all physics and turret logic. Update *every* client and host to the same version.
+
+The standalone Windows build includes the new engine loop and its checks in GitHub Actions.
+
 ## Version 0.6 — Tank handling and territory playtest
 
 **Tank handling**

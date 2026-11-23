@@ -161,7 +161,7 @@ def draw_ground(surface, camera, wall_hp):
     pygame.draw.rect(surface, (199, 208, 168), bounds, 5)
 
 
-def main(argv=None):
+def main(argv=None, dev_token=None):
     parser = argparse.ArgumentParser(description="Bolo-LAN multiplayer client")
     parser.add_argument("--host", help="Host LAN IP (auto-discover if omitted)")
     parser.add_argument("--port", type=int, default=PORT)
@@ -218,9 +218,16 @@ def main(argv=None):
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
                 audio.toggle_mute()
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not getattr(event, 'repeat', False):
-                if local_id is not None:
-                    send(sock, addr, {"type": "god_mode"})
+            elif (event.type == pygame.KEYDOWN
+                  and event.key == pygame.K_g
+                  and (event.mod & pygame.KMOD_CTRL)
+                  and (event.mod & pygame.KMOD_SHIFT)
+                  and not getattr(event, "repeat", False)):
+                # Host-only hidden testing shortcut. Server separately
+                # authenticates the secret, never just the key combination.
+                if local_id is not None and dev_token:
+                    send(sock, addr, {"type": "god_mode",
+                                      "dev_token": dev_token})
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_b and not getattr(event, "repeat", False):
                 build_mode = not build_mode
                 build_message = ""

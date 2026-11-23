@@ -211,7 +211,7 @@ def main(argv=None):
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
                 audio.toggle_mute()
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not event.repeat:
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g and not getattr(event, 'repeat', False):
                 if local_id is not None:
                     send(sock, addr, {"type": "god_mode"})
         for _ in range(96):

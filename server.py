@@ -1,6 +1,7 @@
 """Bolo-LAN authoritative UDP game server."""
 import json
 import math
+import random
 import select
 import socket
 import time
@@ -35,7 +36,11 @@ FOREST_PENETRATION_TILES = 2
 TURRET_SPEED = 2.0  # radians/second; 180 degrees takes ~1.57 seconds
 SHELL_SPEED = 680.0
 SHELL_LIFE = 1.6
-RELOAD = 0.42
+RELOAD = 0.60
+RELOAD_SOUND_AT = 0.19  # Mechanical breech closes shortly before firing is available
+SPAWN_SAFE_RADIUS = 550
+SPAWN_PLAYER_DISTANCE = 450
+SPAWN_GRACE = 3.0
 CLIENT_TIMEOUT = 8.0
 MAX_PLAYERS = 16
 
@@ -67,6 +72,7 @@ class GameServer:
         self.built_roads = {}  # (tx, ty) -> builder player id
         self.bridge_owners = {}
         self.next_id = 1
+        self.spawn_rng = random.Random(20261123)
         self.tick = 0
         self.events = []
         self.next_event = 1
@@ -86,13 +92,79 @@ class GameServer:
         except OSError:
             pass
 
+    def spawn_clearance(self, x, y, player_id):
+        """Minimum distance from another tank or live hostile pillbox."""
+        distance = WORLD_W
+        for other in self.players.values():
+            if other["id"] != player_id and other.get("respawn", 0) <= 0:
+                distance = min(distance, wrapped_distance(
+                    x, y, other["x"], other["y"]))
+        for box in self.pillboxes:
+            if box["hp"] > 0 and box["owner"] != player_id:
+                distance = min(distance, wrapped_distance(
+                    x, y, box["x"], box["y"]))
+        return distance
+
+    def is_safe_spawn(self, x, y, player_id, strict=True):
+        if not TANK_RADIUS + 25 <= y <= WORLD_H - TANK_RADIUS - 25:
+            return False
+        if self.blocked(x, y):
+            return False
+        clearance = self.spawn_clearance(x, y, player_id)
+        if strict and clearance < SPAWN_SAFE_RADIUS:
+            return False
+        for other in self.players.values():
+            if other["id"] != player_id and other.get("respawn", 0) <= 0:
+                if wrapped_distance(x, y, other["x"], other["y"]) < SPAWN_PLAYER_DISTANCE:
+                    return False
+        return True
+
+    def choose_spawn(self, player):
+        """Unclaimed flag first; random defensible ground once all are taken.
+
+        Flag starts are balanced by shuffled selection, avoiding another tank
+        already occupying the objective. When flags are all owned, sample the
+        playable world and maximize separation from hostile guns and players.
+        """
+        player_id = player["id"]
+        neutral = [base for base in self.bases if base["owner"] == 0]
+        self.spawn_rng.shuffle(neutral)
+        for base in neutral:
+            if self.is_safe_spawn(base["x"], base["y"], player_id, strict=False):
+                return base["x"], base["y"], "flag"
+        # No free usable flag: try many independent locations, excluding
+        # forest, water, river, walls and the polar edges.
+        best = None
+        for _ in range(850):
+            x = self.spawn_rng.randrange(GRID_SIZE, WORLD_W - GRID_SIZE, GRID_SIZE) + GRID_SIZE / 2
+            y = self.spawn_rng.randrange(GRID_SIZE, WORLD_H - GRID_SIZE, GRID_SIZE) + GRID_SIZE / 2
+            if terrain_at(x, y) not in ("grass", "road"):
+                continue
+            if not self.is_safe_spawn(x, y, player_id, strict=False):
+                continue
+            clearance = self.spawn_clearance(x, y, player_id)
+            if clearance >= SPAWN_SAFE_RADIUS:
+                return x, y, "safe"
+            if best is None or clearance > best[0]:
+                best = (clearance, x, y)
+        if best is not None:
+            return best[1], best[2], "fallback"
+        # Emergency fallback: retain the original known spawn sites; the
+        # initial spawn grace prevents immediate camping in difficult maps.
+        for x, y in SPAWNS:
+            if self.is_safe_spawn(x, y, player_id, strict=False):
+                return x, y, "fallback"
+        return float(SPAWNS[0][0]), float(SPAWNS[0][1]), "fallback"
+
     def spawn(self, player):
-        i = (player["id"] - 1) % len(SPAWNS)
-        player.update(x=float(SPAWNS[i][0]), y=float(SPAWNS[i][1]),
-                      angle=0.0 if i % 2 == 0 else math.pi,
-                      turret=0.0 if i % 2 == 0 else math.pi, hp=100,
+        x, y, spawn_kind = self.choose_spawn(player)
+        angle = self.spawn_rng.random() * math.tau
+        player.update(x=float(x), y=float(y),
+                      angle=angle, turret=angle, hp=100,
                       ammo=24, speed=0.0, angular_speed=0.0,
-                      reload=0.0, respawn=0.0)
+                      reload=0.0, reload_sound_pending=False,
+                      respawn=0.0, spawn_grace=SPAWN_GRACE,
+                      spawn_kind=spawn_kind)
 
     def handle(self, data, address):
         if len(data) > 1024:
@@ -180,6 +252,8 @@ class GameServer:
                 if player["respawn"] <= 0:
                     self.spawn(player)
                 continue
+            player["spawn_grace"] = max(0.0,
+                                         player.get("spawn_grace", 0.0) - dt)
             for resource in ("ammo", "material"):
                 timer = resource + "_sound_timer"
                 player[timer] = max(0.0, player.get(timer, 0.0) - dt)
@@ -234,6 +308,11 @@ class GameServer:
                 player["speed"] = 0.0
             player["build_timer"] = max(0.0, player["build_timer"] - dt)
             player["reload"] = max(0.0, player["reload"] - dt)
+            if (player.get("reload_sound_pending") and
+                    player["reload"] <= RELOAD_SOUND_AT):
+                self.event("reload", player["x"], player["y"],
+                           recipient=player_id)
+                player["reload_sound_pending"] = False
             if command.get("fire") and player["reload"] <= 0 and player["ammo"] >= 1:
                 angle = player["turret"]
                 self.alert_pillboxes(player, angle)
@@ -246,6 +325,7 @@ class GameServer:
                            player["y"] + math.sin(angle) * 34, angle=angle)
                 player["reload"] = RELOAD
                 player["ammo"] -= 1
+                player["reload_sound_pending"] = player["ammo"] >= 1
         self.update_bases(dt)
         self.update_pillboxes(dt)
         remaining = []
@@ -310,7 +390,8 @@ class GameServer:
                 dist2 = shortest_dx(player["x"], wrap_x(old_x + t * dx)) ** 2 + (old_y + t * dy - player["y"]) ** 2
                 if dist2 <= (TANK_RADIUS + 4) ** 2:
                     self.event("hit", player["x"], player["y"])
-                    if not player["god_mode"]:
+                    if (not player["god_mode"] and
+                            player.get("spawn_grace", 0.0) <= 0):
                         player["hp"] -= bullet.get("damage", 34)
                     if player["hp"] <= 0:
                         player["hp"] = 0
@@ -583,7 +664,8 @@ class GameServer:
                 0.0, box.get("retaliation_timer", 0.0) - dt)
             visible = []
             for player in self.players.values():
-                if player["respawn"] > 0 or player["id"] == box["owner"]:
+                if (player["respawn"] > 0 or player["id"] == box["owner"]
+                        or player.get("spawn_grace", 0.0) > 0):
                     continue
                 distance = wrapped_distance(player["x"], player["y"],
                                             box["x"], box["y"])
@@ -631,7 +713,8 @@ class GameServer:
                     "dead": p["respawn"] > 0, "color": p["color"],
                     "speed": round(p["speed"], 1), "ammo": int(p["ammo"]),
                     "god_mode": p["god_mode"],
-                    "material": round(p["material"], 1)}
+                    "material": round(p["material"], 1),
+                    "spawn_grace": round(p.get("spawn_grace", 0), 1)}
                    for p in self.players.values()]
         bullets = [{"x": round(b["x"], 1), "y": round(b["y"], 1)}
                    for b in self.bullets]

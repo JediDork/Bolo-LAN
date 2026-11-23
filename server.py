@@ -8,7 +8,7 @@ import time
 from shared import (COLORS, PORT, SPAWNS, TANK_RADIUS, TICK_RATE, WORLD_H,
                     WORLD_W, WALL_SECTIONS, WALL_MAX_HP, clamp, overlaps_wall, segment_hits_wall)
 from terrain import (BASE_SITES, PILLBOX_SITES, TERRAIN_SPEED, terrain_at,
-                     water_at)
+                     water_at, initial_wall_hp)
 
 MOVE_SPEED = 125.0
 REVERSE_SPEED = 75.0
@@ -46,7 +46,7 @@ class GameServer:
         self.pillboxes = [{"id": i, "x": float(x), "y": float(y),
                            "hp": 100, "cooldown": 0.7, "owner": 0}
                           for i, (x, y) in enumerate(PILLBOX_SITES)]
-        self.wall_hp = [WALL_MAX_HP] * len(WALL_SECTIONS)
+        self.wall_hp = initial_wall_hp()
         self.next_id = 1
         self.tick = 0
         self.events = []

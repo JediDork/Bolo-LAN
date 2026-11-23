@@ -250,18 +250,30 @@ def main(argv=None):
                 # Events retain IDs across snapshots, so duplicate packets never replay an explosion.
                 events = message.get("events", [])
                 for event in events:
-                    if event["id"] > last_event_id:
-                        effects.burst(event["type"], event["x"], event["y"],
+                    if event["id"] <= last_event_id:
+                        continue
+                    # Targeted supply and flag notifications belong only to
+                    # their owning player, not the entire LAN.
+                    last_event_id = event["id"]
+                    recipient = event.get("recipient")
+                    if recipient is not None and recipient != local_id:
+                        continue
+                    kind = event["type"]
+                    if kind not in ("material_added", "material_full",
+                                    "ammo_added", "ammo_full",
+                                    "flag_taken", "flag_lost"):
+                        effects.burst(kind, event["x"], event["y"],
                                       event.get("angle", 0))
-                        # Audio uses distance to the local tank, not screen position.
-                        listener = next((p for p in message.get("players", [])
-                                         if p["id"] == local_id), None)
-                        distance = (math.hypot(event["x"] - listener["x"],
-                                               event["y"] - listener["y"])
-                                    if listener else 0.0)
-                        if local_id is not None:
-                            audio.play(event["type"], distance)
-                        last_event_id = event["id"]
+                    if local_id is not None:
+                        if recipient is not None:
+                            audio.play(kind, 0.0)
+                        else:
+                            listener = next((p for p in message.get("players", [])
+                                             if p["id"] == local_id), None)
+                            distance = (wrapped_distance(event["x"], event["y"],
+                                                         listener["x"], listener["y"])
+                                        if listener else 0.0)
+                            audio.play(kind, distance)
                 state = message
                 last_snapshot = time.monotonic()
             elif message.get("type") == "build_result":

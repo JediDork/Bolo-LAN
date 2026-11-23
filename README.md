@@ -2,6 +2,17 @@
 
 A modern, LAN-first, top-down tank combat prototype inspired by the strategy and mechanics of classic Bolo.
 
+## Version 0.10 — Narrow rivers, bridges, clean forests and transparent flags
+
+- **One-grid-cell river:** the meandering river now occupies exactly one 50-unit tile in each row, rather than a broad multi-cell watercourse. Each consecutive section deviates at most one tile horizontally.
+- **No wall/forest overlap:** pre-existing wall sections inside or immediately alongside wooded areas are removed from the initial map consistently for clients and server. Future wall building can apply the same placement constraints.
+- **Bridges at road crossings:** roads continue across rivers on visible timber bridge decks. These crossings travel at road speed; the rest of the river remains slow but fordable (18% of grass speed). Bridge construction and demolition by players are future work.
+- **Smaller flags, transparent ground:** capture sites now retain their coloured status ring and animated capture arc, but the oversized opaque circular ground has been removed. Only the small square flag base and compact pole/pennant obscure underlying terrain.
+- The construction grid still governs solid structures and terrain collision; natural-looking shorelines and forests remain unchanged.
+- Extra automated tests validate narrow continuous rivers, bridge placement and consistent wall/forest clearances.
+
+Restart every client and host together to use the same deterministic map.
+
 ## Version 0.9 — Natural terrain, connected roads and river fords
 
 - **Natural-shaped forests and lakes:** deterministic connected clusters of 50-unit terrain tiles now form irregular shorelines and forest boundaries rather than simple rectangles. Rounded overlapping visual edges keep the terrain organic while its gameplay footprint remains grid-based for future building.

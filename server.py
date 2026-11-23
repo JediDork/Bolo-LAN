@@ -63,6 +63,7 @@ class GameServer:
                                 for index, (wx, wy, _, _) in enumerate(WALL_SECTIONS)}
         self.built_walls = {}  # (tile_x, tile_y) -> {hp, owner}
         self.built_bridges = set()
+        self.built_roads = {}  # (tx, ty) -> builder player id
         self.bridge_owners = {}
         self.next_id = 1
         self.tick = 0
@@ -184,8 +185,11 @@ class GameServer:
             throttle = command.get("move", 0)
             turning = command.get("turn", 0)
             ground = terrain_at(player["x"], player["y"])
-            if (int(player["x"] // GRID_SIZE), int(player["y"] // GRID_SIZE)) in self.built_bridges:
+            tile_under_tank = tile_at(player["x"], player["y"])
+            if tile_under_tank in self.built_bridges:
                 ground = "bridge"
+            elif tile_under_tank in self.built_roads:
+                ground = "road"
             multiplier = TERRAIN_SPEED[ground]
             target_speed = (MOVE_SPEED if throttle > 0 else REVERSE_SPEED) * multiplier * throttle
             speed = player["speed"]
@@ -443,7 +447,7 @@ class GameServer:
             if (blocked_build_terrain(tile, part) or nearby_forest(tile)
                     or near_flag(tile) or original_wall is not None or built_wall
                     or box or player_occupies or tile in self.built_bridges
-                    or tile in BRIDGE_TILES):
+                    or tile in BRIDGE_TILES or tile in self.built_roads):
                 return respond(False, "TILE OCCUPIED OR UNSUITABLE")
             if part == "wall":
                 self.built_walls[tile] = {"hp": WALL_MAX_HP, "owner": player["id"]}
@@ -454,6 +458,14 @@ class GameServer:
                                        "tracking": False,
                                        "retaliation_target": 0,
                                        "retaliation_timer": 0.0})
+        elif part == "road":
+            if (blocked_build_terrain(tile, part) or tile in ROAD_TILES
+                    or tile in BRIDGE_TILES or tile in self.built_roads
+                    or tile in self.built_bridges or near_flag(tile)
+                    or original_wall is not None or built_wall is not None
+                    or box is not None):
+                return respond(False, "ROAD REQUIRES FREE DRY TERRAIN")
+            self.built_roads[tile] = player["id"]
         elif part == "bridge":
             if tile not in RIVER_TILES or tile in BRIDGE_TILES or tile in self.built_bridges:
                 return respond(False, "BRIDGES REQUIRE OPEN RIVER")
@@ -479,6 +491,8 @@ class GameServer:
             elif tile in self.built_bridges and self.bridge_owners.get(tile) == player["id"]:
                 self.built_bridges.remove(tile)
                 self.bridge_owners.pop(tile, None)
+            elif tile in self.built_roads and self.built_roads[tile] == player["id"]:
+                del self.built_roads[tile]
             elif box is not None and box["owner"] == player["id"]:
                 box["hp"] = 0
             else:
@@ -596,6 +610,7 @@ class GameServer:
                    "built_walls": [{"tx": tx, "ty": ty, **info}
                                    for (tx, ty), info in self.built_walls.items()],
                    "built_bridges": [list(tile) for tile in sorted(self.built_bridges)],
+                   "built_roads": [list(tile) for tile in sorted(self.built_roads)],
                    "bases": [{k: (round(v, 2) if isinstance(v, float) else v)
                               for k, v in base.items()} for base in self.bases],
                    "pillboxes": [{k: v for k, v in box.items() if k != "cooldown"}

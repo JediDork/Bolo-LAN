@@ -9,7 +9,7 @@ import pygame
 
 from effects import DETAILS
 from shared import GRID_SIZE, WALL_MAX_HP, WALL_SECTIONS, WORLD_H, WORLD_W
-from terrain import (FOREST_TILES, LAKE_TILES, RIVER_TILES, ROAD_TILES,
+from terrain import (FOREST_TILES, LAKE_TILES, RIVER_TILES, ROAD_TILES, BRIDGE_TILES,
                      GRID_W, GRID_H, neighbors, terrain_at)
 
 WORLD_VIEW_W, WORLD_VIEW_H = 1200, 760
@@ -79,8 +79,7 @@ def make_terrain_cache():
                     (44 if dx else 50) * SCALE)
                 pygame.draw.rect(result, (139, 122, 94), rect)
 
-    # Draw the river over the roads: at a crossing the road ends at each bank
-    # and the player must ford through slow water until bridge building exists.
+    # The river flows beneath raised bridge decking at crossings.
     for mask, deep, rim, radius in (
         (RIVER_TILES, (38, 103, 137), (76, 153, 171), 37),
         (LAKE_TILES, (29, 85, 127), (70, 149, 175), 39),
@@ -96,6 +95,24 @@ def make_terrain_cache():
                 pygame.draw.arc(result, (106, 180, 188),
                                 pygame.Rect(round(px - 19 * SCALE), round(py - 6 * SCALE),
                                             38 * SCALE, 16 * SCALE), 0.3, 2.7, 2)
+
+    # Prebuilt bridges occupy the road/river intersection cells. These are
+    # fast crossings; unbridged river tiles remain very slow for tanks.
+    for tx, ty in sorted(BRIDGE_TILES):
+        x = tx * GRID_SIZE * SCALE
+        y = ty * GRID_SIZE * SCALE
+        deck = pygame.Rect(x, y + 9 * SCALE,
+                           GRID_SIZE * SCALE, 32 * SCALE)
+        pygame.draw.rect(result, (62, 53, 44), deck.inflate(0, 12 * SCALE), border_radius=5)
+        pygame.draw.rect(result, (155, 126, 88), deck, border_radius=4)
+        for plank in range(5, GRID_SIZE, 9):
+            line_x = x + plank * SCALE
+            pygame.draw.line(result, (106, 83, 61),
+                             (line_x, deck.top + 3), (line_x, deck.bottom - 3), 2)
+        pygame.draw.line(result, (215, 187, 124),
+                         (deck.left, deck.top), (deck.right, deck.top), 4)
+        pygame.draw.line(result, (215, 187, 124),
+                         (deck.left, deck.bottom), (deck.right, deck.bottom), 4)
 
     # Scatter only on uncovered grass. Tree foliage and water keep their own
     # detail, preventing dots on the banks that look like grid artefacts.
@@ -239,7 +256,8 @@ def minimap(surface, players, local_id, camera, bases=(), pillboxes=()):
     for mask, color in ((FOREST_TILES, (43, 87, 51)),
                         (ROAD_TILES, (127, 113, 88)),
                         (RIVER_TILES, (54, 118, 146)),
-                        (LAKE_TILES, (38, 93, 139))):
+                        (LAKE_TILES, (38, 93, 139)),
+                        (BRIDGE_TILES, (211, 182, 125))):
         for tx, ty in mask:
             pygame.draw.rect(surface, color,
                              (round(left + tx * GRID_SIZE * radar_scale),
@@ -273,22 +291,28 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
         x, y = point(base["x"], base["y"], camera)
         owned = base["owner"] == local_id and local_id is not None
         color = (80, 195, 136) if owned else ((203, 115, 89) if base["owner"] else (206, 178, 84))
-        dot(surface, (25, 37, 35), x, y, 57 * SCALE)
-        dot(surface, (73, 76, 65), x, y, 49 * SCALE)
-        pygame.draw.circle(surface, color, (x, y), 43 * SCALE, 7)
-        pygame.draw.rect(surface, color, (x - 27, y - 27, 54, 54), border_radius=5)
-        pygame.draw.rect(surface, (30, 39, 34), (x - 18, y - 18, 36, 36), 4)
-        # A little raised flag distinguishes capture objectives from terrain.
-        pygame.draw.line(surface, (34, 41, 38), (x + 20, y - 18),
-                         (x + 20, y - 72), 6)
+        # Open status ring: terrain remains visible beneath the base.
+        pygame.draw.circle(surface, (21, 39, 36), (x, y), 49 * SCALE, 7)
+        pygame.draw.circle(surface, color, (x, y), 47 * SCALE, 5)
+        # Only the small square flag foundation is filled.
+        flag_size = 34 * SCALE
+        flag = pygame.Rect(x - flag_size // 2, y - flag_size // 2,
+                           flag_size, flag_size)
+        pygame.draw.rect(surface, (56, 60, 53), flag, border_radius=5)
+        pygame.draw.rect(surface, color, flag, 4, border_radius=5)
+        # Pole and pennant remain within the single flag tile.
+        pygame.draw.line(surface, (26, 36, 33), (x + 2, y + 15 * SCALE),
+                         (x + 2, y - 17 * SCALE), 4)
         pygame.draw.polygon(surface, color,
-                            ((x + 22, y - 72), (x + 64, y - 62),
-                             (x + 22, y - 50)))
+                            ((x + 4, y - 17 * SCALE),
+                             (x + 23 * SCALE, y - 12 * SCALE),
+                             (x + 4, y - 6 * SCALE)))
         if base.get("capturing"):
             progress = min(1.0, base.get("progress", 0) / 2.5)
             pygame.draw.arc(surface, (249, 231, 112),
-                            pygame.Rect(x - 108, y - 108, 216, 216),
-                            -math.pi / 2, -math.pi / 2 + progress * math.tau, 11)
+                            pygame.Rect(x - 52 * SCALE, y - 52 * SCALE,
+                                        104 * SCALE, 104 * SCALE),
+                            -math.pi / 2, -math.pi / 2 + progress * math.tau, 8)
     for box in pillboxes:
         if box["hp"] <= 0:
             continue
@@ -314,7 +338,7 @@ def draw_frame(surface, camera, wall_hp, bullets, players, local_id, effects,
     panel.fill((16, 30, 29, 208))
     surface.blit(panel, (16, RENDER_H - 162))
     surface.blit(fonts["heading"].render(
-        "BOLO-LAN  /  RIVER TEST v0.9", True, (235, 233, 208)),
+        "BOLO-LAN  /  BRIDGE TEST v0.10", True, (235, 233, 208)),
         (40, RENDER_H - 150))
     surface.blit(fonts["label"].render(
         f"HOST {host}:{port} | PLAYERS {len(players)} | WASD DRIVE | MOUSE AIM | CLICK FIRE | M MUTE",
